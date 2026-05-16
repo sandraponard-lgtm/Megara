@@ -12,16 +12,28 @@ def extract_video_id(url):
     match = re.search(pattern, url)
     return match.group(1) if match else None
 
-# Fonction pour récupérer le texte de la transcription
+# Fonction pour récupérer le texte de la transcription (Version de secours ultra-compatible)
 def get_youtube_transcript(video_id):
     try:
-        # Tente de récupérer en français, sinon bascule sur l'anglais
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['fr', 'en'])
-        full_text = " ".join([entry['text'] for entry in transcript_list])
+        # On récupère la liste des transcriptions disponibles pour la vidéo
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        
+        # On essaie d'abord de trouver une version française (manuelle ou automatique)
+        try:
+            transcript = transcript_list.find_transcript(['fr'])
+        except:
+            # Si pas de français, on cherche de l'anglais
+            transcript = transcript_list.find_transcript(['en'])
+            
+        # On extrait le texte
+        data = transcript.fetch()
+        full_text = " ".join([entry['text'] for entry in data])
         return full_text
+        
     except Exception as e:
         st.error(f"Impossible de récupérer les sous-titres : {str(e)}")
         return None
+
 
 # Interface utilisateur
 st.title("📊 Analyseur & Extracteur de Contenu YouTube")
