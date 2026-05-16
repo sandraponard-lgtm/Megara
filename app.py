@@ -1,14 +1,13 @@
 import streamlit as st
-import re
 from google import genai
-from google.genai import types  # Import indispensable pour injecter la vraie vidéo
+from google.genai.types import Part
 
 # Configuration de la page Streamlit
 st.set_page_config(page_title="YouTube Video Summarizer", page_icon="📊", layout="wide")
 
 # Interface utilisateur
 st.title("📊 Analyseur & Extracteur de Contenu YouTube")
-st.write("Collez une URL YouTube pour générer un résumé complet, des points clés, des citations et des chiffres marquants.")
+st.write("Collez une URL YouTube pour générer une analyse complète selon vos critères personnalisés.")
 
 # Sidebar pour la configuration de l'API Key
 with st.sidebar:
@@ -36,55 +35,67 @@ if st.button("Analyser la vidéo", type="primary"):
         else:
             clean_url = video_url
 
-        st.success("Connexion à Gemini réussie ! Récupération et analyse de la vraie vidéo en cours...")
+        st.info("Connexion à l'infrastructure Google... Analyse de la vidéo en cours.")
         
         try:
             # Initialisation du client Gemini
             client = genai.Client(api_key=api_key)
             
-            # Configuration stricte du prompt d'analyse
+            # Prompt ultra-structuré basé sur vos critères
             prompt_text = """
-            Agis comme un analyste expert. Analyse le contenu de la vidéo YouTube fournie (visuel et audio/sous-titres) et rédige un rapport structuré en français.
-            
-            Format attendu :
-            
-            ## 📝 Résumé Global
-            (Rédige un résumé condensé et percutant de la vidéo en un ou deux paragraphes maximum)
-            
+            Agis comme un analyste expert. Analyse attentivement le contenu visuel et audio de la vidéo YouTube fournie et rédige un rapport structuré en français en respectant SCRUPULEUSEMENT le plan suivant :
+
+            ## 📝 Résumé rapide
+            *(Rédige ici un résumé très condensé en 2 ou 3 phrases maximum, obligatoirement en italique)*
+
             ---
-            
-            ## 💡 Idées Clés & Bullet Points
-            (Liste à puces des concepts essentiels développés dans la vidéo)
-            
+
+            ## ℹ️ Informations
+            - **Titre :** (Le titre de la vidéo)
+            - **Chaîne :** (Le nom de la chaîne YouTube qui a publié la vidéo)
+            - **Date :** (La date de publication ou une estimation d'après les propos)
+            - **Durée :** (La durée de la vidéo)
+            - **Langue :** (La langue parlée dans la vidéo)
+            - **Vues :** (Le nombre de vues si disponible, sinon indique "Non extrait")
+
             ---
-            
-            ## 💬 Citations Marquantes
-            (Extraits ou phrases fortes prononcées dans la vidéo)
-            
+
+            ## 📖 Résumé détaillé
+            (Rédige une analyse en profondeur de la vidéo, structurée en plusieurs paragraphes clairs et détaillés)
+
             ---
-            
-            ## 🔢 Chiffres Clés & Données
-            (Liste des données chiffrées, statistiques, dates ou métriques importantes mentionnées)
+
+            ## 💡 Points clés
+            (Génère une liste structurée et NUMÉROTÉE des concepts essentiels développés dans la vidéo)
+
+            ---
+
+            ## 🔢 Chiffres clés
+            (Liste à puces des statistiques, données chiffrées importantes ou métriques mentionnées)
+
+            ---
+
+            ## 📌 Références citées
+            - **📚 Livres :** (Liste des livres, ouvrages ou documents cités. Si aucun n'est cité, écris "Aucun livre mentionné")
+            - **👤 Personnalités :** (Liste des personnes, auteurs, experts ou figures historiques cités. Si aucune n'est citée, écris "Aucune personnalité mentionnée")
             """
             
-            # Appel au modèle en passant l'URL comme un fichier multimédia natif
-            with st.spinner("Gemini examine la vidéo... Cela peut prendre 15 à 45 secondes selon la durée."):
+            # Appel au modèle avec injection du flux URI
+            with st.spinner("Gemini examine la vidéo... Cela prend généralement entre 15 et 30 secondes."):
                 response = client.models.generate_content(
                     model='gemini-2.5-flash',
-                    contents=types.Content(
-                        parts=[
-                            types.Part.from_uri(
-                                file_uri=clean_url,
-                                mime_type="video/mp4"  # Indique à Gemini qu'il doit traiter l'URL comme une vidéo
-                            ),
-                            types.Part.from_text(text=prompt_text)
-                        ]
-                    )
+                    contents=[
+                        Part.from_uri(
+                            file_uri=clean_url,
+                            mime_type="video/mp4"
+                        ),
+                        prompt_text
+                    ]
                 )
             
-            # Affichage des résultats
+            # Affichage des résultats personnalisés
             st.markdown("---")
-            st.subheader("🎬 Résultats de l'Analyse")
+            st.subheader("🎬 Rapport d'Analyse Vidéo")
             st.markdown(response.text)
                 
         except Exception as e:
