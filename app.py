@@ -1,6 +1,7 @@
 import streamlit as st
 import re
 from google import genai
+from google.genai import types  # Import indispensable pour injecter la vraie vidéo
 
 # Configuration de la page Streamlit
 st.set_page_config(page_title="YouTube Video Summarizer", page_icon="📊", layout="wide")
@@ -25,21 +26,25 @@ if st.button("Analyser la vidéo", type="primary"):
     elif not video_url:
         st.warning("Veuillez entrer une URL valide.")
     else:
-        # Nettoyage rapide de l'URL pour s'assurer qu'elle est propre
-        if "youtu.be/" in video_url and "?" in video_url:
-            # Extrait l'URL de base si elle contient des paramètres mobiles étranges (?is=...)
-            video_url = video_url.split("?")[0]
+        # Nettoyage de l'URL pour s'assurer qu'elle est au format standard attendu par Google
+        if "youtu.be/" in video_url:
+            video_id = video_url.split("youtu.be/")[1].split("?")[0]
+            clean_url = f"https://www.youtube.com/watch?v={video_id}"
+        elif "watch?v=" in video_url:
+            video_id = video_url.split("watch?v=")[1].split("&")[0]
+            clean_url = f"https://www.youtube.com/watch?v={video_id}"
+        else:
+            clean_url = video_url
 
-        st.success("Connexion à Gemini réussie ! Analyse de la vidéo en cours (cela peut prendre 10 à 30 secondes)...")
+        st.success("Connexion à Gemini réussie ! Récupération et analyse de la vraie vidéo en cours...")
         
         try:
             # Initialisation du client Gemini
             client = genai.Client(api_key=api_key)
             
-            # Prompt d'ingénierie structuré envoyé à l'IA avec la vidéo intégrée
-            prompt = f"""
-            Agis comme un analyste expert. Regarde attentivement la vidéo YouTube liée à cette URL et rédige un rapport structuré en français.
-            URL de la vidéo : {video_url}
+            # Configuration stricte du prompt d'analyse
+            prompt_text = """
+            Agis comme un analyste expert. Analyse le contenu de la vidéo YouTube fournie (visuel et audio/sous-titres) et rédige un rapport structuré en français.
             
             Format attendu :
             
@@ -62,11 +67,19 @@ if st.button("Analyser la vidéo", type="primary"):
             (Liste des données chiffrées, statistiques, dates ou métriques importantes mentionnées)
             """
             
-            # Appel au modèle de génération de contenu
-            with st.spinner("L'IA examine la vidéo et génère vos insights..."):
+            # Appel au modèle en passant l'URL comme un fichier multimédia natif
+            with st.spinner("Gemini examine la vidéo... Cela peut prendre 15 à 45 secondes selon la durée."):
                 response = client.models.generate_content(
                     model='gemini-2.5-flash',
-                    contents=prompt,
+                    contents=types.Content(
+                        parts=[
+                            types.Part.from_uri(
+                                file_uri=clean_url,
+                                mime_type="video/mp4"  # Indique à Gemini qu'il doit traiter l'URL comme une vidéo
+                            ),
+                            types.Part.from_text(text=prompt_text)
+                        ]
+                    )
                 )
             
             # Affichage des résultats
