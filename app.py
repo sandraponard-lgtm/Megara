@@ -1,47 +1,9 @@
 import streamlit as st
 import re
-from youtube_transcript_api import YouTubeTranscriptApi
 from google import genai
 
 # Configuration de la page Streamlit
 st.set_page_config(page_title="YouTube Video Summarizer", page_icon="📊", layout="wide")
-
-# Fonction pour extraire l'ID de la vidéo à partir de l'URL
-def extract_video_id(url):
-    pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11}).*'
-    match = re.search(pattern, url)
-    return match.group(1) if match else None
-
-# Fonction pour récupérer le texte de la transcription (Version adaptée aux nouvelles structures d'objets)
-def get_youtube_transcript(video_id):
-    try:
-        # Initialisation de l'instance
-        api_instance = YouTubeTranscriptApi()
-        
-        # Récupération de la transcription (Tente le français, sinon l'anglais)
-        try:
-            transcript_data = api_instance.fetch(video_id, languages=['fr', 'en'])
-        except Exception:
-            # Si le paramètre linguistique échoue, on prend ce qui vient nativement
-            transcript_data = api_instance.fetch(video_id)
-        
-        # Extraction du texte selon si c'est un objet moderne ou un dictionnaire classique
-        text_segments = []
-        for entry in transcript_data:
-            if hasattr(entry, 'text'):
-                text_segments.append(entry.text)  # Nouvelle version de l'API (Objet)
-            elif isinstance(entry, dict) and 'text' in entry:
-                text_segments.append(entry['text'])  # Ancienne version (Dictionnaire)
-            else:
-                text_segments.append(str(entry))
-                
-        full_text = " ".join(text_segments)
-        return full_text
-        
-    except Exception as e:
-        st.error(f"Impossible de récupérer les sous-titres : {str(e)}")
-        return None
-
 
 # Interface utilisateur
 st.title("📊 Analyseur & Extracteur de Contenu YouTube")
@@ -63,63 +25,54 @@ if st.button("Analyser la vidéo", type="primary"):
     elif not video_url:
         st.warning("Veuillez entrer une URL valide.")
     else:
-        video_id = extract_video_id(video_url)
-        
-        if not video_id:
-            st.error("URL YouTube invalide. Vérifiez le format.")
-        else:
-            with st.spinner("Extraction des sous-titres en cours..."):
-                transcript = get_youtube_transcript(video_id)
-            
-            if transcript:
-                st.success("Transcription récupérée avec succès ! Analyse IA en cours...")
-                
-                try:
-                    client = genai.Client(api_key=api_key)
-                    
-                    prompt = f"""
-                    Agis comme un analyste expert. Analyse la transcription textuelle de la vidéo YouTube suivante et rédige un rapport structuré en français.
-                    
-                    Règles d'or : 
-                    - Si la transcription contient des erreurs évidentes liées aux sous-titres automatiques, corrige le sens intelligemment.
-                    - Reste strictement fidèle aux propos de la vidéo.
+        # Nettoyage rapide de l'URL pour s'assurer qu'elle est propre
+        if "youtu.be/" in video_url and "?" in video_url:
+            # Extrait l'URL de base si elle contient des paramètres mobiles étranges (?is=...)
+            video_url = video_url.split("?")[0]
 
-                    Format attendu :
-                    
-                    ## 📝 Résumé Global
-                    (Rédige un résumé condensé et percutant de la vidéo en un ou deux paragraphes maximum)
-                    
-                    ---
-                    
-                    ## 💡 Idées Clés & Bullet Points
-                    (Liste à puces des concepts essentiels développés dans la vidéo)
-                    
-                    ---
-                    
-                    ## 💬 Citations Marquantes
-                    (Extraits ou phrases fortes prononcées)
-                    
-                    ---
-                    
-                    ## 🔢 Chiffres Clés & Données
-                    (Liste des données chiffrées, statistiques, dates ou métriques importantes mentionnées)
-                    
-                    Transcription à analyser :
-                    {transcript}
-                    """
-                    
-                    with st.spinner("L'IA génère vos insights..."):
-                        response = client.models.generate_content(
-                            model='gemini-2.5-flash',
-                            contents=prompt,
-                        )
-                    
-                    st.markdown("---")
-                    st.subheader("🎬 Résultats de l'Analyse")
-                    st.markdown(response.text)
-                    
-                    with st.expander("Voir la transcription brute complète"):
-                        st.write(transcript)
-                        
-                except Exception as e:
-                    st.error(f"Erreur lors de la génération par l'IA : {str(e)}")
+        st.success("Connexion à Gemini réussie ! Analyse de la vidéo en cours (cela peut prendre 10 à 30 secondes)...")
+        
+        try:
+            # Initialisation du client Gemini
+            client = genai.Client(api_key=api_key)
+            
+            # Prompt d'ingénierie structuré envoyé à l'IA avec la vidéo intégrée
+            prompt = f"""
+            Agis comme un analyste expert. Regarde attentivement la vidéo YouTube liée à cette URL et rédige un rapport structuré en français.
+            URL de la vidéo : {video_url}
+            
+            Format attendu :
+            
+            ## 📝 Résumé Global
+            (Rédige un résumé condensé et percutant de la vidéo en un ou deux paragraphes maximum)
+            
+            ---
+            
+            ## 💡 Idées Clés & Bullet Points
+            (Liste à puces des concepts essentiels développés dans la vidéo)
+            
+            ---
+            
+            ## 💬 Citations Marquantes
+            (Extraits ou phrases fortes prononcées dans la vidéo)
+            
+            ---
+            
+            ## 🔢 Chiffres Clés & Données
+            (Liste des données chiffrées, statistiques, dates ou métriques importantes mentionnées)
+            """
+            
+            # Appel au modèle de génération de contenu
+            with st.spinner("L'IA examine la vidéo et génère vos insights..."):
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=prompt,
+                )
+            
+            # Affichage des résultats
+            st.markdown("---")
+            st.subheader("🎬 Résultats de l'Analyse")
+            st.markdown(response.text)
+                
+        except Exception as e:
+            st.error(f"Erreur lors de la génération par l'IA : {str(e)}")
