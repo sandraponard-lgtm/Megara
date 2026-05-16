@@ -12,30 +12,36 @@ def extract_video_id(url):
     match = re.search(pattern, url)
     return match.group(1) if match else None
 
-# Fonction pour récupérer le texte de la transcription (Version 100% sécurisée)
+# Fonction pour récupérer le texte de la transcription (Version adaptée aux nouvelles structures d'objets)
 def get_youtube_transcript(video_id):
     try:
-        # On force l'instanciation de l'API pour contourner le bug d'attribut
+        # Initialisation de l'instance
         api_instance = YouTubeTranscriptApi()
         
-        # Récupération de la transcription brute (méthode de base de l'instance)
-        transcript_list = api_instance.fetch(video_id)
+        # Récupération de la transcription (Tente le français, sinon l'anglais)
+        try:
+            transcript_data = api_instance.fetch(video_id, languages=['fr', 'en'])
+        except Exception:
+            # Si le paramètre linguistique échoue, on prend ce qui vient nativement
+            transcript_data = api_instance.fetch(video_id)
         
-        # On rassemble le texte
-        full_text = " ".join([entry['text'] for entry in transcript_list])
+        # Extraction du texte selon si c'est un objet moderne ou un dictionnaire classique
+        text_segments = []
+        for entry in transcript_data:
+            if hasattr(entry, 'text'):
+                text_segments.append(entry.text)  # Nouvelle version de l'API (Objet)
+            elif isinstance(entry, dict) and 'text' in entry:
+                text_segments.append(entry['text'])  # Ancienne version (Dictionnaire)
+            else:
+                text_segments.append(str(entry))
+                
+        full_text = " ".join(text_segments)
         return full_text
         
     except Exception as e:
-        # Si la méthode directe échoue, on tente une approche par liste de secours
-        try:
-            api_instance = YouTubeTranscriptApi()
-            transcript_list = api_instance.list(video_id)
-            transcript = transcript_list.find_transcript(['fr', 'en'])
-            data = transcript.fetch()
-            return " ".join([entry['text'] for entry in data])
-        except Exception as e_inner:
-            st.error(f"Impossible de récupérer les sous-titres : {str(e_inner)}")
-            return None
+        st.error(f"Impossible de récupérer les sous-titres : {str(e)}")
+        return None
+
 
 # Interface utilisateur
 st.title("📊 Analyseur & Extracteur de Contenu YouTube")
