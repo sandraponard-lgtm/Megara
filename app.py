@@ -46,29 +46,57 @@ def get_youtube_details(v_id, yt_key):
         pass
     return None
 
-# Fonction officielle pour récupérer les sous-titres via l'API de transcription YouTube
+# Fonction officielle améliorée pour récupérer TOUS les sous-titres (manuels et automatiques)
 def get_official_transcript(v_id):
     try:
-        # Étape A: Demander la liste des pistes de sous-titres disponibles
-        video_info_url = f"https://video.google.com/timedtext?v={v_id}&type=list"
-        response = requests.get(video_info_url)
+        # 1. On demande la liste complète des pistes (manuelles ET automatiques)
+        list_url = f"https://video.google.com/timedtext?v={v_id}&type=list"
+        list_response = requests.get(list_url)
         
-        lang_code = "fr"  # Par défaut on cherche du français
-        if "lang_code=\"fr\"" not in response.text and "lang_code=\"en\"" in response.text:
-            lang_code = "en"  # Repli sur l'anglais si pas de français
-            
-        # Étape B: Télécharger le fichier XML des sous-titres choisis
-        transcript_url = f"https://video.google.com/timedtext?v={v_id}&lang={lang_code}"
+        lang_code = None
+        track_name = ""
+        
+        # 2. Stratégie de détection intelligente dans le XML de YouTube
+        if "lang_code=\"fr\"" in list_response.text:
+            lang_code = "fr"
+            # Si c'est de l'automatique français, YouTube ajoute souvent un attribut name
+            if "name=\"🗣️\"" in list_response.text or "name=\"Generative" in list_response.text:
+                track_name = "&name=fr"
+        elif "lang_code=\"en\"" in list_response.text:
+            lang_code = "en"
+        
+        # Si aucune langue standard n'est isolée, on cherche la première piste automatique disponible (asr)
+        if not lang_code and "lang_code=\"" in list_response.text:
+            try:
+                lang_code = list_response.text.split('lang_code="')[1].split('"')[0]
+            except:
+                lang_code = "fr" # Repli par défaut
+                
+        if not lang_code:
+            lang_code = "fr"
+
+        # 3. Téléchargement de la piste avec les arguments de forçage (lang + name si nécessaire)
+        transcript_url = f"https://video.google.com/timedtext?v={v_id}&lang={lang_code}{track_name}"
         xml_response = requests.get(transcript_url)
         
-        # Étape C: Nettoyer le XML pour ne garder que le texte brut
-        if xml_response.text:
+        # 4. Si le XML est vide, on tente un dernier coup de poker sans filtre de nom
+        if not xml_response.text or "<transcript></transcript>" in xml_response.text:
+            transcript_url = f"https://video.google.com/timedtext?v={v_id}&lang={lang_code}"
+            xml_response = requests.get(transcript_url)
+
+        # 5. Extraction et nettoyage du texte brut
+        if xml_response.text and "<transcript></transcript>" not in xml_response.text:
             root = ET.fromstring(xml_response.text)
             text_lines = [text_node.text for text_node in root.findall('text') if text_node.text]
-            return " ".join(text_lines)
-    except:
+            # Un petit nettoyage pour enlever les entités HTML résiduelles comme &#39; (les apostrophes)
+            clean_text = " ".join(text_lines)
+            clean_text = clean_text.replace("&#39;", "'").replace("&quot;", '"').replace("&amp;", "&")
+            return clean_text
+            
+    except Exception as e:
         pass
     return None
+
 
 if st.button("Analyser la vidéo", type="primary"):
     if not gemini_key or not youtube_key:
