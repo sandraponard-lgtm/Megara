@@ -1,13 +1,12 @@
 import streamlit as st
 import requests
-import xml.etree.ElementTree as ET
 from google import genai
 
 # Configuration de la page Streamlit
 st.set_page_config(page_title="YouTube Video Summarizer", page_icon="📊", layout="wide")
 
 st.title("📊 Analyseur & Extracteur de Contenu YouTube")
-st.write("Collez une URL YouTube pour générer une analyse complète et officielle grâce aux API Google.")
+st.write("Collez une URL YouTube pour générer une analyse complète basée sur la vraie transcription.")
 
 # Sidebar pour les clés API
 with st.sidebar:
@@ -27,7 +26,7 @@ def extract_id(url):
         return url.split("watch?v=")[1].split("&")[0]
     return None
 
-# Fonction officielle pour récupérer les vraies infos de la vidéo
+# Récupération des métadonnées officielles via YouTube API
 def get_youtube_details(v_id, yt_key):
     url = f"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id={v_id}&key={yt_key}"
     try:
@@ -37,70 +36,41 @@ def get_youtube_details(v_id, yt_key):
             return {
                 "title": item["snippet"]["title"],
                 "channel": item["snippet"]["channelTitle"],
+                "description": item["snippet"].get("description", ""),
+                "tags": ", ".join(item["snippet"].get("tags", [])),
                 "date": item["snippet"]["publishedAt"][:10],
                 "duration": item["contentDetails"]["duration"].replace("PT", "").lower(),
-                "views": item["statistics"].get("viewCount", "Non disponible"),
+                "views": item["statistics"].get("viewCount", "0"),
                 "lang": item["snippet"].get("defaultAudioLanguage", "fr")
             }
     except:
         pass
     return None
 
-# Fonction officielle améliorée pour récupérer TOUS les sous-titres (manuels et automatiques)
-def get_official_transcript(v_id):
+# Nouvelle fonction de récupération par interception (comme les sites web)
+def get_scraped_transcript(v_id):
     try:
-        # 1. On demande la liste complète des pistes (manuelles ET automatiques)
-        list_url = f"https://video.google.com/timedtext?v={v_id}&type=list"
-        list_response = requests.get(list_url)
+        # On utilise un micro-service de scraping public spécialisé dans l'interception de la piste ASR V3 de YouTube
+        api_url = f"https://youtubetranscript.com/api/transcripts/{v_id}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        response = requests.get(api_url, headers=headers, timeout=10)
         
-        lang_code = None
-        track_name = ""
-        
-        # 2. Stratégie de détection intelligente dans le XML de YouTube
-        if "lang_code=\"fr\"" in list_response.text:
-            lang_code = "fr"
-            # Si c'est de l'automatique français, YouTube ajoute souvent un attribut name
-            if "name=\"🗣️\"" in list_response.text or "name=\"Generative" in list_response.text:
-                track_name = "&name=fr"
-        elif "lang_code=\"en\"" in list_response.text:
-            lang_code = "en"
-        
-        # Si aucune langue standard n'est isolée, on cherche la première piste automatique disponible (asr)
-        if not lang_code and "lang_code=\"" in list_response.text:
-            try:
-                lang_code = list_response.text.split('lang_code="')[1].split('"')[0]
-            except:
-                lang_code = "fr" # Repli par défaut
-                
-        if not lang_code:
-            lang_code = "fr"
-
-        # 3. Téléchargement de la piste avec les arguments de forçage (lang + name si nécessaire)
-        transcript_url = f"https://video.google.com/timedtext?v={v_id}&lang={lang_code}{track_name}"
-        xml_response = requests.get(transcript_url)
-        
-        # 4. Si le XML est vide, on tente un dernier coup de poker sans filtre de nom
-        if not xml_response.text or "<transcript></transcript>" in xml_response.text:
-            transcript_url = f"https://video.google.com/timedtext?v={v_id}&lang={lang_code}"
-            xml_response = requests.get(transcript_url)
-
-        # 5. Extraction et nettoyage du texte brut
-        if xml_response.text and "<transcript></transcript>" not in xml_response.text:
-            root = ET.fromstring(xml_response.text)
+        if response.status_code == 200 and response.text:
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(response.text)
             text_lines = [text_node.text for text_node in root.findall('text') if text_node.text]
-            # Un petit nettoyage pour enlever les entités HTML résiduelles comme &#39; (les apostrophes)
-            clean_text = " ".join(text_lines)
-            clean_text = clean_text.replace("&#39;", "'").replace("&quot;", '"').replace("&amp;", "&")
-            return clean_text
-            
-    except Exception as e:
+            if text_lines:
+                clean_text = " ".join(text_lines)
+                return clean_text.replace("&#39;", "'").replace("&quot;", '"').replace("&amp;", "&")
+    except:
         pass
     return None
 
-
 if st.button("Analyser la vidéo", type="primary"):
     if not gemini_key or not youtube_key:
-        st.warning("Veuillez renseigner vos DEUX clés API dans la barre latérale (Gemini et YouTube).")
+        st.warning("Veuillez renseigner vos DEUX clés API dans la barre latérale.")
     elif not video_url:
         st.warning("Veuillez entrer une URL valide.")
     else:
@@ -108,23 +78,34 @@ if st.button("Analyser la vidéo", type="primary"):
         if not video_id:
             st.error("Impossible de détecter l'ID de la vidéo.")
         else:
-            with st.spinner("Récupération des métadonnées et sous-titres officiels..."):
+            with st.spinner("Récupération des données et de la transcription réelle..."):
                 details = get_youtube_details(video_id, youtube_key)
-                transcript_text = get_official_transcript(video_id)
+                transcript_text = get_scraped_transcript(video_id)
             
             if not details:
-                st.error("Impossible de récupérer les informations de la vidéo. Vérifiez votre clé API YouTube.")
+                st.error("Impossible de récupérer les informations de la vidéo.")
             else:
-                # Si pas de sous-titres, on prévient Gemini pour qu'il travaille sur le titre et la description
-                if not transcript_text:
-                    st.warning("⚠️ Aucun sous-titre textuel trouvé pour cette vidéo. Gemini va analyser la vidéo d'après son titre.")
-                    transcript_text = f"Vidéo intitulée '{details['title']}' de la chaîne '{details['channel']}'."
+                # Indicateur visuel pour savoir si on a bien le texte complet
+                if transcript_text:
+                    st.success("🎯 Transcription réelle récupérée avec succès !")
+                    context_status = "Texte complet extrait de la vidéo"
+                else:
+                    st.warning("⚠️ Mode de secours activé (analyse par description).")
+                    transcript_text = f"Titre: {details['title']}. Description: {details['description']}"
+                    context_status = "Description et chapitres uniquement"
 
                 try:
                     client = genai.Client(api_key=gemini_key)
                     
                     prompt_text = f"""
-                    Agis comme un analyste expert. Rédige un rapport d'analyse structuré en français basé sur les informations et la transcription fournies ci-dessous. Respecte SCRUPULEUSEMENT ce plan :
+                    Agis comme un analyste expert. Tu dois rédiger un rapport d'analyse structuré en français basé sur les informations et la transcription fournies.
+                    
+                    Voici les données de la vidéo :
+                    - **Titre officiel :** {details['title']}
+                    - **Chaîne :** {details['channel']}
+                    - **Contenu/Transcription à analyser :** {transcript_text}
+
+                    Respecte SCRUPULEUSEMENT le plan suivant pour ta réponse :
 
                     ## 📝 Résumé rapide
                     *(Rédige ici un résumé très condensé en 2 ou 3 phrases maximum, obligatoirement en italique)*
@@ -147,7 +128,7 @@ if st.button("Analyser la vidéo", type="primary"):
                     ---
 
                     ## 💡 Points clés
-                    (Génère une liste structurée et NUMÉROTÉE des concepts essentiels développés dans la vidéo)
+                    (Génère une liste structurée et NUMÉROTÉE des concepts essentiels développés)
 
                     ---
 
@@ -157,11 +138,8 @@ if st.button("Analyser la vidéo", type="primary"):
                     ---
 
                     ## 📌 Références citées
-                    - **📚 Livres :** (Liste des livres, ouvrages ou documents cités d'après la transcription. Si aucun, écris "Aucun livre mentionné")
-                    - **👤 Personnalités :** (Liste des personnes, auteurs, experts cités. Si aucune, écris "Aucune personnalité mentionnée")
-
-                    Voici le contenu textuel de la vidéo à analyser :
-                    {transcript_text}
+                    - **📚 Livres :** (Liste des livres ou documents cités d'après le texte. Si aucun, écris "Aucun livre mentionné")
+                    - **👤 Personnalités :** (Liste des personnes, experts ou figures cités. Si aucune, écris "Aucune personnalité mentionnée")
                     """
                     
                     with st.spinner("Gemini génère votre rapport personnalisé..."):
@@ -172,6 +150,7 @@ if st.button("Analyser la vidéo", type="primary"):
                     
                     st.markdown("---")
                     st.subheader("🎬 Rapport d'Analyse Vidéo")
+                    st.caption(f"Source des données : {context_status}")
                     st.markdown(response.text)
                         
                 except Exception as e:
