@@ -1,6 +1,5 @@
 import streamlit as st
 import requests
-import time
 import sys
 from google import genai
 
@@ -121,15 +120,13 @@ def get_official_youtube_details(v_id, yt_key):
                 "views": item["statistics"].get("viewCount", "0"),
                 "lang": item["snippet"].get("defaultAudioLanguage", "FR").upper()
             }
-        else:
-            add_log(f"⚠️ API YouTube : Réponse vide ou structure incorrecte.")
     except Exception as e:
         add_log(f"❌ API YouTube Erreur : {str(e)}")
     return None
 
-# Extraction robuste : 1 seul POST payant, puis bouclage de vérification en GET (Gratuit)
+# Parseur robuste à passage unique (sans boucle) qui cherche le texte partout dans l'objet reçu
 def get_transcript_from_1min(url, api_key):
-    api_url_base = "https://api.1min.ai/api/features" 
+    api_url = "https://api.1min.ai/api/features" 
     headers = {"API-KEY": api_key, "Content-Type": "application/json"}
     payload = {
         "type": "YOUTUBE_TRANSCRIBER",
@@ -138,58 +135,46 @@ def get_transcript_from_1min(url, api_key):
         "promptObject": {"videoUrl": url}
     }
     try:
-        # 1. UNIQUE Requête POST (Lancement de la tâche - Débit de crédit unique)
-        response = requests.post(api_url_base, json=payload, headers=headers)
-        add_log(f"📡 1min.ai (POST Initial) : HTTP {response.status_code}")
-        if response.status_code not in [200, 201]:
-            return None
+        response = requests.post(api_url, json=payload, headers=headers)
+        add_log(f"📡 1min.ai : HTTP {response.status_code}")
+        if response.status_code in [200, 201]:
+            data = response.json()
+            add_log(f"📄 1min.ai JSON complet reçu (extrait) : {str(data)[:1000]}...")
             
-        data = response.json()
-        
-        # Extraction de l'UUID pour le suivi gratuit
-        task_uuid = data.get("aiRecord", {}).get("uuid")
-        if not task_uuid:
-            add_log("❌ Impossible de récupérer l'UUID de la tâche dans la réponse initiale.")
-            return None
-            
-        add_log(f"🆔 Tâche 1min.ai enregistrée. UUID: {task_uuid}")
+            # --- STRATÉGIE DE PARSING MULTI-NIVEAUX ---
+            # Étape 1 : Exploration à la racine
+            if "resultObject" in data and data["resultObject"]:
+                if isinstance(data["resultObject"], list) and len(data["resultObject"]) > 0:
+                    return data["resultObject"][0]
+                return str(data["resultObject"])
 
-        # 2. Boucle de vérification en mode GET (Vérification de statut gratuite, sans surcoût)
-        # On tente de rafraîchir le statut toutes les 4 secondes, max 12 fois (48s max)
-        status_url = f"https://api.1min.ai/api/features/{task_uuid}"
-        
-        for attempt in range(12):
-            add_log(f"🔄 Vérification du statut (Essai {attempt + 1}/12)...")
-            
-            # Extraction des données si elles sont déjà présentes dans l'état actuel
-            if isinstance(data, dict):
-                # Cas 1 : Le texte est prêt (SUCCESS)
-                if data.get("aiRecord", {}).get("status") == "SUCCESS" or "resultObject" in data:
-                    if "aiRecordDetail" in data and isinstance(data["aiRecordDetail"], dict):
-                        prompt_obj = data["aiRecordDetail"].get("promptObject", {})
-                        if isinstance(prompt_obj, dict) and "prompt" in prompt_obj:
-                            raw_text = prompt_obj["prompt"]
-                            if "xml data for reference:" in raw_text.lower():
-                                return raw_text.split("```xml")[-1].replace("```", "").strip()
-                            return raw_text
-                    
-                    if "resultObject" in data and isinstance(data["resultObject"], list) and len(data["resultObject"]) > 0:
-                        return data["resultObject"][0]
-                
-                # Cas 2 : Toujours en traitement, ou structure de départ incomplète
-                add_log(f"⏳ Statut actuel : {data.get('aiRecord', {}).get('status', 'PROCESSING')}. En attente...")
-            
-            # Attendre avant d'interroger à nouveau l'état (GET gratuit)
-            time.sleep(4)
-            refresh_res = requests.get(status_url, headers={"API-KEY": api_key})
-            if refresh_res.status_code == 200:
-                data = refresh_res.json()
-            else:
-                add_log(f"⚠️ Échec du rafraîchissement GET : HTTP {refresh_res.status_code}")
-                
-        add_log("❌ Temps d'attente maximum dépassé pour la transcription 1min.ai.")
+            # Étape 2 : Exploration dans le bloc aiRecordDetail
+            record_detail = data.get("aiRecordDetail", {})
+            if isinstance(record_detail, dict):
+                prompt_obj = record_detail.get("promptObject", {})
+                if isinstance(prompt_obj, dict) and "prompt" in prompt_obj:
+                    raw_text = prompt_obj["prompt"]
+                    if "xml data for reference:" in raw_text.lower():
+                        return raw_text.split("```xml")[-1].replace("```", "").strip()
+                    return raw_text
+
+            # Étape 3 : Exploration dans le sous-bloc aiRecord (votre structure du log)
+            ai_record = data.get("aiRecord", {})
+            if isinstance(ai_record, dict):
+                # Parfois imbriqué dans aiRecord -> promptObject ou resultObject
+                inner_detail = ai_record.get("aiRecordDetail", {}) or ai_record
+                if isinstance(inner_detail, dict):
+                    p_obj = inner_detail.get("promptObject", {})
+                    if isinstance(p_obj, dict) and "prompt" in p_obj:
+                        return p_obj["prompt"]
+                    if "resultObject" in inner_detail:
+                        res_obj = inner_detail["resultObject"]
+                        if isinstance(res_obj, list) and len(res_obj) > 0: return res_obj[0]
+                        return str(res_obj)
+
+            add_log("⚠️ Parseur : Clé de texte introuvable malgré le succès HTTP.")
     except Exception as e:
-        add_log(f"❌ 1min.ai Erreur critique : {str(e)}")
+        add_log(f"❌ 1min.ai Erreur critique de parsing : {str(e)}")
     return None
 
 # --- NAVIGATION INTERNE (TABS FIXES) ---
@@ -231,13 +216,13 @@ if st.button("Lancer l'analyse complète", type="primary"):
             onemin_key = st.secrets.get("ONEMIN_API_KEY", "")
             gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 
-            with st.spinner("Extraction et génération de la transcription (Patientez pendant le traitement initial)..."):
+            with st.spinner("Extraction du texte via 1min.ai..."):
                 transcript_text = get_transcript_from_1min(video_url, onemin_key)
             
             if not transcript_text:
-                st.error("Erreur : Impossible d'obtenir la transcription. Relancez l'analyse dans quelques secondes, le traitement est peut-être en train de finir chez 1min.ai.")
+                st.error("Erreur : Impossible de lire la transcription. Regarde le détail dans le panneau de Debug en bas.")
             else:
-                add_log(f"📝 Transcription récupérée avec succès ({len(transcript_text)} caractères)")
+                add_log(f"📝 Transcription validée pour Gemini ({len(transcript_text)} caractères)")
                 with st.spinner("Récupération des métadonnées YouTube..."):
                     details = get_official_youtube_details(video_id, yt_key)
                 
@@ -298,7 +283,6 @@ if st.button("Lancer l'analyse complète", type="primary"):
                             contents=prompt_text
                         )
                     
-                    add_log("🤖 API Gemini : Réponse générée.")
                     sections = response.text.split("===SECTION_SEPARATOR===")
                     st.session_state['report_data'] = {
                         "synth": sections[0].strip() if len(sections) > 0 else "",
@@ -335,17 +319,16 @@ if 'report_data' in st.session_state:
         
     st.markdown('</div>', unsafe_allow_html=True)
 
-# --- ZONE DE DEBUG DYNAMIQUE EN BAS DE PAGE ---
+# --- ZONE DE DEBUG EN BAS DE PAGE ---
 st.markdown("<br><br><hr style='border: 1px solid rgba(255,255,255,0.05);'>", unsafe_allow_html=True)
 with st.expander("🛠️ Console de Diagnostic technique (Debug)", expanded=False):
-    st.subheader("⚙️ État des Secrets & de l'Environnement")
+    st.subheader("⚙️ État des Secrets")
     col_s1, col_s2, col_s3 = st.columns(3)
     with col_s1: st.metric("GEMINI_API_KEY", "Présente ✅" if "GEMINI_API_KEY" in st.secrets else "Absente ❌")
     with col_s2: st.metric("ONEMIN_API_KEY", "Présente ✅" if "ONEMIN_API_KEY" in st.secrets else "Absente ❌")
     with col_s3: st.metric("YOUTUBE_API_KEY", "Présente ✅" if "YOUTUBE_API_KEY" in st.secrets else "Absente ❌")
         
-    st.markdown(f"**Version Python :** `{sys.version.split()[0]}` | **Version Streamlit :** `{st.__version__}`")
-    st.subheader("📜 Logs d'exécution de la dernière action")
+    st.subheader("📜 Logs d'exécution")
     if st.session_state["debug_logs"]:
         st.code("\n".join(st.session_state["debug_logs"]), language="text")
     else:
