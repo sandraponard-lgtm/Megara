@@ -34,9 +34,9 @@ if not check_password():
 # --- CODE PRINCIPAL DE L'APPLICATION (ACCÈS AUTORISÉ) ---
 
 st.title("📊 Analyseur & Extracteur de Contenu YouTube")
-st.write("Analyse officielle et complète basée sur les métadonnées réelles de YouTube et la transcription de l'IA.")
+st.write("Analyse officielle basée sur les métadonnées de YouTube et l'extraction de l'IA.")
 
-# Sidebar épurée (les clés sont chargées de manière transparente)
+# Sidebar épurée
 with st.sidebar:
     st.header("Statut de l'application")
     st.success("🔒 Authentification réussie")
@@ -46,7 +46,7 @@ with st.sidebar:
         st.session_state["password_correct"] = False
         st.rerun()
 
-# Champ de saisie unique
+# Saisie de l'URL
 video_url = st.text_input("Entrez l'URL de la vidéo YouTube :", placeholder="https://www.youtube.com/watch?v=...")
 
 def extract_id(url):
@@ -56,14 +56,13 @@ def extract_id(url):
         return url.split("watch?v=")[1].split("&")[0]
     return None
 
-# Récupération des VRAIES métadonnées officielles (Titre, Chaîne, Date, Vues) via YouTube Data API
+# Récupération des métadonnées officielles via YouTube Data API
 def get_official_youtube_details(v_id, yt_key):
     url = f"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id={v_id}&key={yt_key}"
     try:
         res = requests.get(url).json()
         if "items" in res and len(res["items"]) > 0:
             item = res["items"][0]
-            # Formatage de la date en JJ/MM/AAAA
             raw_date = item["snippet"]["publishedAt"][:10]  # AAAA-MM-JJ
             year, month, day = raw_date.split("-")
             clean_date = f"{day}/{month}/{year}"
@@ -76,11 +75,11 @@ def get_official_youtube_details(v_id, yt_key):
                 "views": item["statistics"].get("viewCount", "0"),
                 "lang": item["snippet"].get("defaultAudioLanguage", "FR").upper()
             }
-    except Exception as e:
+    except:
         pass
     return None
 
-# Extraction de la transcription via 1min.ai (Version Diagnostic)
+# Extraction de la transcription via 1min.ai (Adaptée à leur vraie structure de réponse)
 def get_transcript_from_1min(url, api_key):
     api_url = "https://api.1min.ai/api/features" 
     headers = {
@@ -95,27 +94,30 @@ def get_transcript_from_1min(url, api_key):
     }
     try:
         response = requests.post(api_url, json=payload, headers=headers)
-        
-        # ZONE DE DIAGNOSTIC - S'affichera directement dans l'application
-        st.subheader("🔍 Analyse de l'échec 1min.ai")
-        st.write(f"Code HTTP reçu : {response.status_code}")
-        try:
-            st.json(response.json()) # On affiche le JSON brut renvoyé par 1min.ai
-            data = response.json()
-        except:
-            st.text(f"Réponse brute (Non-JSON) : {response.text}")
-            return None
-
         if response.status_code in [200, 201]:
+            data = response.json()
+            
+            # Ciblage précis de la structure de données renvoyée par leur moteur
             if isinstance(data, dict):
-                transcript = data.get("result") or data.get("text") or data.get("transcript")
-                if transcript: return transcript
-                if "data" in data and isinstance(data["data"], dict):
-                    return data["data"].get("result") or data["data"].get("text")
-    except Exception as e:
-        st.error(f"Erreur d'exécution de la requête : {str(e)}")
+                # 1. Extraction depuis le dictionnaire interne aiRecordDetail si présent
+                if "aiRecordDetail" in data and isinstance(data["aiRecordDetail"], dict):
+                    prompt_obj = data["aiRecordDetail"].get("promptObject", {})
+                    if isinstance(prompt_obj, dict) and "prompt" in prompt_obj:
+                        # On nettoie le prompt système pour ne garder que le texte de la transcription
+                        raw_text = prompt_obj["prompt"]
+                        if "xml data for reference:" in raw_text.lower():
+                            return raw_text.split("```xml")[-1].replace("```", "").strip()
+                        return raw_text
+                
+                # 2. Repli sur le tableau de résultats nettoyé par leur LLM
+                if "resultObject" in data and isinstance(data["resultObject"], list) and len(data["resultObject"]) > 0:
+                    return data["resultObject"][0]
+                    
+                # 3. Repli générique standard
+                return data.get("result") or data.get("text") or str(data)
+    except:
+        pass
     return None
-
 
 if st.button("Lancer l'analyse complète", type="primary"):
     if not video_url:
@@ -125,7 +127,6 @@ if st.button("Lancer l'analyse complète", type="primary"):
         if not video_id:
             st.error("Impossible de détecter l'ID de la vidéo.")
         else:
-            # Récupération sécurisée des clés depuis les secrets d'infrastructure
             gemini_key = st.secrets["GEMINI_API_KEY"]
             onemin_key = st.secrets["ONEMIN_API_KEY"]
             youtube_key = st.secrets["YOUTUBE_API_KEY"]
@@ -137,11 +138,11 @@ if st.button("Lancer l'analyse complète", type="primary"):
                 transcript_text = get_transcript_from_1min(video_url, onemin_key)
             
             if not details:
-                st.error("Erreur d'authentification YouTube. Vérifiez 'YOUTUBE_API_KEY' dans vos Secrets Streamlit.")
+                st.error("Erreur YouTube : Impossible de récupérer les métadonnées. Vérifiez votre 'YOUTUBE_API_KEY'.")
             elif not transcript_text:
-                st.error("1min.ai n'a pas pu extraire le texte. Vérifiez vos crédits ou votre clé 'ONEMIN_API_KEY'.")
+                st.error("Erreur 1min.ai : Impossible de lire la transcription.")
             else:
-                st.success("🎯 Métadonnées et transcription récupérées ! Génération du rapport structuré...")
+                st.success("🎯 Métadonnées et transcription récupérées ! Alignement et analyse par Gemini...")
                 
                 try:
                     client = genai.Client(api_key=gemini_key)
@@ -203,7 +204,7 @@ if st.button("Lancer l'analyse complète", type="primary"):
                 except Exception as e:
                     st.error(f"Erreur lors de la génération par l'IA : {str(e)}")
 
-# Affichage des résultats et zone de copie rapide
+# Affichage des résultats et zone d'exportation
 if 'report_result' in st.session_state:
     st.markdown("---")
     st.subheader("🎬 Rapport d'Analyse Vidéo")
