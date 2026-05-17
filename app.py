@@ -2,90 +2,123 @@ import streamlit as st
 import requests
 from google import genai
 
-# Configuration de la page Streamlit
-st.set_page_config(page_title="YouTube Video Summarizer", page_icon="📊", layout="wide")
+# Configuration de la page avec thème sombre natif forcé via le design
+st.set_page_config(page_title="Analyseur YouTube", page_icon="📊", layout="wide")
 
-# --- SYSTÈME DE SÉCURITÉ & MOT DE PASSE ---
+# --- INJECTION CSS POUR INTERFACE MODERNE ET TABS FIXES ---
+st.markdown("""
+<style>
+    /* Style global et arrière-plan sombre */
+    .stApp {
+        background-color: #0f0f13;
+        color: #e2e8f0;
+    }
+    
+    /* Titre moderne effet dégradé */
+    .main-title {
+        font-family: 'Inter', sans-serif;
+        font-weight: 800;
+        font-size: 3rem;
+        background: linear-gradient(45deg, #a78bfa, #c084fc);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-align: center;
+        margin-bottom: 0.5rem;
+    }
+    .sub-title {
+        text-align: center;
+        color: #94a3b8;
+        font-size: 1.1rem;
+        margin-bottom: 3rem;
+    }
+
+    /* Container style Glassmorphism (comme sur votre PJ) */
+    .glass-card {
+        background: rgba(23, 23, 33, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 16px;
+        padding: 2.5rem;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        margin-bottom: 2rem;
+    }
+
+    /* Barre d'onglets FIXE en haut de la page lors du scroll */
+    .fixed-nav {
+        position: fixed;
+        top: 2.85rem;
+        left: 0;
+        right: 0;
+        background: rgba(15, 15, 19, 0.95);
+        backdrop-filter: blur(8px);
+        z-index: 9999;
+        display: flex;
+        justify-content: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 0.5rem 0;
+    }
+    
+    /* Espacement pour éviter que le contenu passe sous la barre fixe */
+    .scroll-padding {
+        padding-top: 4rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --- SYSTÈME DE SÉCURITÉ ---
 def check_password():
-    """Renvoie True si l'utilisateur a saisi le bon mot de passe stocké dans les secrets."""
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
-
     if st.session_state["password_correct"]:
         return True
 
-    # Formulaire de connexion
-    st.center = st.container()
-    with st.center:
-        st.title("🔒 Accès Sécurisé")
-        password = st.text_input("Veuillez entrer le code d'accès pour utiliser l'application :", type="password")
-        if st.button("Se connecter", type="primary"):
-            if password == st.secrets["APP_PASSWORD"]:
-                st.session_state["password_correct"] = True
-                st.rerun()
-            else:
-                st.error("❌ Code d'accès incorrect.")
+    st.markdown('<div class="glass-card" style="max-width:500px; margin: 10% auto;">', unsafe_allow_html=True)
+    st.markdown('<h2 style="text-align:center;">🔒 Accès Sécurisé</h2>', unsafe_allow_html=True)
+    password = st.text_input("Code d'accès :", type="password")
+    if st.button("Se connecter", type="primary"):
+        if password == st.secrets["APP_PASSWORD"]:
+            st.session_state["password_correct"] = True
+            st.rerun()
+        else:
+            st.error("❌ Code d'accès incorrect.")
+    st.markdown('</div>', unsafe_allow_html=True)
     return False
 
-# Si le mot de passe n'est pas bon, on arrête l'exécution ici
 if not check_password():
     st.stop()
 
-# --- CODE PRINCIPAL DE L'APPLICATION (ACCÈS AUTORISÉ) ---
+# --- INITIALISATION DES ÉTATS ---
+if "current_tab" not in st.session_state:
+    st.session_state["current_tab"] = "📊 Synthèse"
 
-st.title("📊 Analyseur & Extracteur de Contenu YouTube")
-st.write("Analyse officielle basée sur les métadonnées de YouTube et l'extraction de l'IA.")
-
-# Sidebar épurée
-with st.sidebar:
-    st.header("Statut de l'application")
-    st.success("🔒 Authentification réussie")
-    st.caption("Données sécurisées via Streamlit Secrets")
-    st.markdown("---")
-    if st.button("Se déconnecter"):
-        st.session_state["password_correct"] = False
-        st.rerun()
-
-# Saisie de l'URL
-video_url = st.text_input("Entrez l'URL de la vidéo YouTube :", placeholder="https://www.youtube.com/watch?v=...")
-
+# --- LOGIQUE D'EXTRACTION (YouTube & 1min.ai) ---
 def extract_id(url):
-    if "youtu.be/" in url:
-        return url.split("youtu.be/")[1].split("?")[0]
-    elif "watch?v=" in url:
-        return url.split("watch?v=")[1].split("&")[0]
+    if "youtu.be/" in url: return url.split("youtu.be/")[1].split("?")[0]
+    elif "watch?v=" in url: return url.split("watch?v=")[1].split("&")[0]
     return None
 
-# Récupération des métadonnées officielles via YouTube Data API
 def get_official_youtube_details(v_id, yt_key):
     url = f"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id={v_id}&key={yt_key}"
     try:
         res = requests.get(url).json()
         if "items" in res and len(res["items"]) > 0:
             item = res["items"][0]
-            raw_date = item["snippet"]["publishedAt"][:10]  # AAAA-MM-JJ
+            raw_date = item["snippet"]["publishedAt"][:10]
             year, month, day = raw_date.split("-")
-            clean_date = f"{day}/{month}/{year}"
-            
             return {
                 "title": item["snippet"]["title"],
                 "channel": item["snippet"]["channelTitle"],
-                "date": clean_date,
+                "date": f"{day}/{month}/{year}",
                 "duration": item["contentDetails"]["duration"].replace("PT", "").lower(),
                 "views": item["statistics"].get("viewCount", "0"),
                 "lang": item["snippet"].get("defaultAudioLanguage", "FR").upper()
             }
-    except:
-        pass
+    except: pass
     return None
 
-# Extraction de la transcription via 1min.ai (Adaptée à leur vraie structure de réponse)
 def get_transcript_from_1min(url, api_key):
     api_url = "https://api.1min.ai/api/features" 
-    headers = {
-        "API-KEY": api_key,
-        "Content-Type": "application/json"
-    }
+    headers = {"API-KEY": api_key, "Content-Type": "application/json"}
     payload = {
         "type": "YOUTUBE_TRANSCRIBER",
         "model": "gpt-4o",
@@ -96,28 +129,44 @@ def get_transcript_from_1min(url, api_key):
         response = requests.post(api_url, json=payload, headers=headers)
         if response.status_code in [200, 201]:
             data = response.json()
-            
-            # Ciblage précis de la structure de données renvoyée par leur moteur
             if isinstance(data, dict):
-                # 1. Extraction depuis le dictionnaire interne aiRecordDetail si présent
                 if "aiRecordDetail" in data and isinstance(data["aiRecordDetail"], dict):
                     prompt_obj = data["aiRecordDetail"].get("promptObject", {})
                     if isinstance(prompt_obj, dict) and "prompt" in prompt_obj:
-                        # On nettoie le prompt système pour ne garder que le texte de la transcription
                         raw_text = prompt_obj["prompt"]
                         if "xml data for reference:" in raw_text.lower():
                             return raw_text.split("```xml")[-1].replace("```", "").strip()
                         return raw_text
-                
-                # 2. Repli sur le tableau de résultats nettoyé par leur LLM
                 if "resultObject" in data and isinstance(data["resultObject"], list) and len(data["resultObject"]) > 0:
                     return data["resultObject"][0]
-                    
-                # 3. Repli générique standard
-                return data.get("result") or data.get("text") or str(data)
-    except:
-        pass
+    except: pass
     return None
+
+# --- RECURSIVE RENDER (NAVIGATION INTERNE SANS RECHARGE) ---
+# Barre d'onglets fixée si un rapport existe
+if 'report_data' in st.session_state:
+    cols = st.columns(5)
+    tabs_list = ["📊 Synthèse", "📖 Analyse détaillée", "💡 Points clés", "💬 Citations", "📋 Export XTile"]
+    
+    # Injection HTML de la structure fixe en arrière-plan pour le scroll
+    st.markdown('<div class="fixed-nav">', unsafe_allow_html=True)
+    # Boutons Streamlit alignés horizontalement faisant office d'onglets actifs
+    for i, tab_name in enumerate(tabs_list):
+        with cols[i]:
+            # Changement de style dynamique si sélectionné
+            is_active = st.session_state["current_tab"] == tab_name
+            if st.button(tab_name, key=f"nav_{tab_name}", use_container_width=True, type="primary" if is_active else "secondary"):
+                st.session_state["current_tab"] = tab_name
+                st.rerun()
+    st.markdown('</div><div class="scroll-padding"></div>', unsafe_allow_html=True)
+
+# --- INTERFACE VISUELLE (STYLE INTERFACE DEMANDÉE) ---
+st.markdown('<h1 class="main-title">Analyseur YouTube</h1>', unsafe_allow_html=True)
+st.markdown('<p class="sub-title">Résumé, points clés, chiffres et références extraits en quelques secondes</p>', unsafe_allow_html=True)
+
+st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+video_url = st.text_input("URL DE LA VIDÉO", placeholder="https://www.youtube.com/watch?v=...")
+st.markdown('</div>', unsafe_allow_html=True)
 
 if st.button("Lancer l'analyse complète", type="primary"):
     if not video_url:
@@ -125,92 +174,99 @@ if st.button("Lancer l'analyse complète", type="primary"):
     else:
         video_id = extract_id(video_url)
         if not video_id:
-            st.error("Impossible de détecter l'ID de la vidéo.")
+            st.error("ID Vidéo introuvable.")
         else:
-            gemini_key = st.secrets["GEMINI_API_KEY"]
-            onemin_key = st.secrets["ONEMIN_API_KEY"]
-            youtube_key = st.secrets["YOUTUBE_API_KEY"]
+            with st.spinner("Extraction des métadonnées et de la transcription..."):
+                details = get_official_youtube_details(video_id, st.secrets["YOUTUBE_API_KEY"])
+                transcript_text = get_transcript_from_1min(video_url, st.secrets["ONEMIN_API_KEY"])
             
-            with st.spinner("Étape 1/2 : Récupération des métadonnées officielles YouTube..."):
-                details = get_official_youtube_details(video_id, youtube_key)
-                
-            with st.spinner("Étape 2/2 : Extraction du texte de la vidéo via 1min.ai..."):
-                transcript_text = get_transcript_from_1min(video_url, onemin_key)
-            
-            if not details:
-                st.error("Erreur YouTube : Impossible de récupérer les métadonnées. Vérifiez votre 'YOUTUBE_API_KEY'.")
-            elif not transcript_text:
-                st.error("Erreur 1min.ai : Impossible de lire la transcription.")
-            else:
-                st.success("🎯 Métadonnées et transcription récupérées ! Alignement et analyse par Gemini...")
-                
+            if details and transcript_text:
                 try:
-                    client = genai.Client(api_key=gemini_key)
+                    client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
                     
+                    # Configuration stricte du prompt structuré pour alimenter les différents onglets
                     prompt_text = f"""
-                    Agis comme un analyste expert. Analyse attentivement la transcription textuelle fournie et rédige un rapport d'analyse structuré en français en te basant sur les données officielles transmises.
+                    Analyse la transcription de cette vidéo YouTube et génère des blocs de données structurés en français selon les instructions exactes suivantes.
+                     Ne mets aucun blabla d'introduction ou de conclusion. Sépare STRICTEMENT chaque grande section par la chaîne de caractères "===SECTION_SEPARATOR===".
 
-                    Respecte SCRUPULEUSEMENT le plan et le formatage suivant :
-
-                    ## 📝 Résumé rapide
-                    *(Rédige ici un résumé très condensé en 2 ou 3 phrases maximum, obligatoirement en italique)*
-
-                    ---
-
-                    ## ℹ️ Informations
+                    [SECTION 1: SYNTHESE]
+                    Rédige un résumé rapide en 2 ou 3 phrases maximum, obligatoirement en italique.
+                    Ajoute ensuite les métadonnées exactement sous cette forme de liste :
                     - **Titre :** {details['title']}
                     - **Chaîne :** {details['channel']}
                     - **URL :** {video_url}
-                    - **Date de publication :** {details['date']}
+                    - **Date :** {details['date']}
                     - **Durée :** {details['duration']}
-                    - **Langue :** {details['lang']}
-                    - **Vues :** {int(details['views']):,} (Mets des espaces pour séparer les milliers)
+                    - **Vues :** {int(details['views']):,} vues
 
-                    ---
+                    ===SECTION_SEPARATOR===
 
-                    ## 📖 Résumé détaillé
-                    (Rédige une analyse en profondeur de la vidéo, structurée en plusieurs paragraphes clairs, denses et détaillés)
+                    [SECTION 2: DETAIL]
+                    Rédige un résumé en profondeur de la vidéo, structuré en plusieurs paragraphes clairs, denses et très détaillés.
 
-                    ---
+                    ===SECTION_SEPARATOR===
 
-                    ## 💡 Points clés
-                    (Génère une liste structurée et NUMÉROTÉE des concepts essentiels développés)
+                    [SECTION 3: POINTS_CLES]
+                    Génère une liste numérotée des concepts essentiels développés.
+                    Ensuite, crée une sous-section nommée "### 🔢 Chiffres clés par Thématiques". Regroupe obligatoirement TOUTES les statistiques et données chiffrées de la vidéo sous des titres thématiques clairs (ex: ### Économie, ### Données démographiques, etc.).
 
-                    ---
+                    ===SECTION_SEPARATOR===
 
-                    ## 🔢 Chiffres clés
-                    (Liste à puces des statistiques, données chiffrées importantes ou métriques mentionnées)
+                    [SECTION 4: CITATIONS_REFERENCES]
+                    Crée une rubrique "### 💬 Citations fortes". Extrais au moins 3 à 5 citations textuelles marquantes ou phrases clés dites dans la vidéo. Pour chaque citation, ajoute obligatoirement entre parenthèses juste après une explication du contexte ou de ce qu'elle implique. Formate ainsi : "« Citation » *(Contexte explicatif)*".
+                    Ajoute ensuite la liste des Livres et Personnalités (avec brève description de qui ils sont).
 
-                    ---
-
-                    ## 📌 Références citées
-                    - **📚 Livres :** (Liste des livres, rapports ou documents cités d'après la transcription. Si aucun, écris "Aucun livre mentionné")
-                    - **👤 Personnalités :** (Pour chaque personne, expert ou auteur cité dans le texte, applique STRICTEMENT ce format : 
-                    * **Nom de la personne** : Brève description de qui elle est, son rôle et sa pertinence par rapport au sujet traité.
-                    Si aucune personnalité n'est citée, écris "Aucune personnalité mentionnée".)
-
-                    Voici la transcription brute à analyser :
+                    Transcription :
                     {transcript_text}
                     """
                     
-                    with st.spinner("Gemini finalise votre rapport personnalisé..."):
+                    with st.spinner("Génération du rapport intelligent..."):
                         response = client.models.generate_content(
                             model='gemini-2.5-flash',
                             contents=prompt_text
                         )
                     
-                    st.session_state['report_result'] = response.text
+                    # Découpage des données renvoyées par Gemini pour les dispatcher dans la session
+                    sections = response.text.split("===SECTION_SEPARATOR===")
+                    st.session_state['report_data'] = {
+                        "synth": sections[0].strip() if len(sections) > 0 else "",
+                        "detail": sections[1].strip() if len(sections) > 1 else "",
+                        "points": sections[2].strip() if len(sections) > 2 else "",
+                        "citations": sections[3].strip() if len(sections) > 3 else ""
+                    }
+                    st.session_state["current_tab"] = "📊 Synthèse" # Focus immédiat sur la Tab principale
+                    st.rerun()
                     
                 except Exception as e:
-                    st.error(f"Erreur lors de la génération par l'IA : {str(e)}")
+                    st.error(f"Erreur d'analyse IA : {str(e)}")
+            else:
+                st.error("Impossible de récupérer les flux de données requis.")
 
-# Affichage des résultats et zone d'exportation
-if 'report_result' in st.session_state:
-    st.markdown("---")
-    st.subheader("🎬 Rapport d'Analyse Vidéo")
-    st.markdown(st.session_state['report_result'])
+# --- RENDU DE L'ONGLET SÉLECTIONNÉ ---
+if 'report_data' in st.session_state:
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     
-    st.markdown("---")
-    st.subheader("📋 Zone d'exportation rapide")
-    st.write("Cliquez sur l'icône de copie en haut à droite du bloc pour l'ajouter dans XTile :")
-    st.code(st.session_state['report_result'], language="markdown")
+    active = st.session_state["current_tab"]
+    data = st.session_state['report_data']
+    
+    if active == "📊 Synthèse":
+        st.markdown(data["synth"])
+        
+    elif active == "📖 Analyse détaillée":
+        st.markdown(data["detail"])
+        
+    elif active == "💡 Points clés":
+        st.markdown(data["points"])
+        
+    elif active == "💬 Citations":
+        st.markdown(data["citations"])
+        
+    elif active == "📋 Export XTile":
+        st.subheader("📋 Copie brute du rapport complet (Markdown / Texte Riche)")
+        st.write("Sélectionnez tout le texte ci-dessous ou cliquez sur le bouton de copie pour l'ajouter directement dans vos tuiles d'application :")
+        
+        # Consolidation totale de toutes les parties pour un export propre d'un coup
+        full_markdown = f"{data['synth']}\n\n---\n\n{data['detail']}\n\n---\n\n{data['points']}\n\n---\n\n{data['citations']}"
+        st.code(full_markdown, language="markdown")
+        
+    st.markdown('</div>', unsafe_allow_html=True)
