@@ -20,10 +20,8 @@ with st.sidebar:
 # Champ de saisie
 video_url = st.text_input("Entrez l'URL de la vidéo YouTube :", placeholder="https://www.youtube.com/watch?v=...")
 
-# Fonction pour appeler l'API de 1min.ai
 def get_transcript_from_1min(url, api_key):
-    # Endpoint officiel de 1min.ai pour la transcription / audio-to-text / video-tools
-    # Note : Adaptez l'endpoint exact selon la spécification de leur doc (ex: /tools/youtube-transcript ou /ai/transcribe)
+    # Endpoint standard de 1min.ai
     api_url = "https://api.1min.ai/v1/audio/transcribe" 
     
     headers = {
@@ -33,33 +31,38 @@ def get_transcript_from_1min(url, api_key):
     
     payload = {
         "url": url,
-        "language": "fr" # ou "auto" selon leur documentation
+        "language": "fr"
     }
     
     try:
-        # 1. Envoi de la demande de transcription
         response = requests.post(api_url, json=payload, headers=headers)
-        if response.status_code in [200, 201]:
+        
+        # AJOUT TEMPORAIRE : On affiche la réponse brute pour comprendre le format
+        st.subheader("🔍 Mode Diagnostic 1min.ai")
+        st.write(f"Code HTTP reçu : {response.status_code}")
+        try:
+            st.json(response.json()) # Affiche le JSON propre dans l'interface
             data = response.json()
+        except:
+            st.text(f"Réponse texte brute : {response.text}")
+            return None
+
+        # Tentative d'extraction intelligente selon les formats connus de 1min.ai
+        if response.status_code in [200, 201]:
+            # Format 1: imbriqué dans un objet 'data'
+            if "data" in data:
+                sub_data = data["data"]
+                if isinstance(sub_data, dict):
+                    return sub_data.get("transcript") or sub_data.get("text") or sub_data.get("result")
+                return str(sub_data)
             
-            # Si l'API est asynchrone (renvoie un ID de tâche), on attend le résultat
-            if "task_id" in data:
-                task_id = data["task_id"]
-                status_url = f"https://api.1min.ai/v1/tasks/{task_id}"
-                
-                for _ in range(30): # Attente max 2-3 minutes
-                    time.sleep(5)
-                    status_res = requests.get(status_url, headers=headers).json()
-                    if status_res.get("status") == "completed":
-                        return status_res.get("result", {}).get("transcript", "")
-                    elif status_res.get("status") == "failed":
-                        return None
-            else:
-                # Si l'API renvoie le résultat directement
-                return data.get("transcript") or data.get("text") or str(data)
+            # Format 2: direct à la racine
+            return data.get("transcript") or data.get("text") or data.get("result")
+            
     except Exception as e:
-        st.error(f"Erreur technique 1min.ai : {str(e)}")
+        st.error(f"Erreur technique lors de l'appel : {str(e)}")
     return None
+
 
 if st.button("Analyser la vidéo", type="primary"):
     if not gemini_key or not onemin_key:
