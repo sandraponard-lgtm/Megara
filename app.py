@@ -32,7 +32,7 @@ st.markdown("""
         margin-bottom: 3rem;
     }
 
-    /* Container style Glassmorphism (comme sur votre PJ) */
+    /* Container style Glassmorphism */
     .glass-card {
         background: rgba(23, 23, 33, 0.7);
         border: 1px solid rgba(255, 255, 255, 0.05);
@@ -91,7 +91,7 @@ if not check_password():
 if "current_tab" not in st.session_state:
     st.session_state["current_tab"] = "📊 Synthèse"
 
-# --- LOGIQUE D'EXTRACTION (YouTube & 1min.ai) ---
+# --- LOGIQUE D'EXTRACTION ---
 def extract_id(url):
     if "youtu.be/" in url: return url.split("youtu.be/")[1].split("?")[0]
     elif "watch?v=" in url: return url.split("watch?v=")[1].split("&")[0]
@@ -142,25 +142,21 @@ def get_transcript_from_1min(url, api_key):
     except: pass
     return None
 
-# --- RECURSIVE RENDER (NAVIGATION INTERNE SANS RECHARGE) ---
-# Barre d'onglets fixée si un rapport existe
+# --- NAVIGATION INTERNE (TABS FIXES) ---
 if 'report_data' in st.session_state:
     cols = st.columns(5)
     tabs_list = ["📊 Synthèse", "📖 Analyse détaillée", "💡 Points clés", "💬 Citations", "📋 Export XTile"]
     
-    # Injection HTML de la structure fixe en arrière-plan pour le scroll
     st.markdown('<div class="fixed-nav">', unsafe_allow_html=True)
-    # Boutons Streamlit alignés horizontalement faisant office d'onglets actifs
     for i, tab_name in enumerate(tabs_list):
         with cols[i]:
-            # Changement de style dynamique si sélectionné
             is_active = st.session_state["current_tab"] == tab_name
             if st.button(tab_name, key=f"nav_{tab_name}", use_container_width=True, type="primary" if is_active else "secondary"):
                 st.session_state["current_tab"] = tab_name
                 st.rerun()
     st.markdown('</div><div class="scroll-padding"></div>', unsafe_allow_html=True)
 
-# --- INTERFACE VISUELLE (STYLE INTERFACE DEMANDÉE) ---
+# --- INTERFACE VISUELLE ---
 st.markdown('<h1 class="main-title">Analyseur YouTube</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">Résumé, points clés, chiffres et références extraits en quelques secondes</p>', unsafe_allow_html=True)
 
@@ -176,33 +172,56 @@ if st.button("Lancer l'analyse complète", type="primary"):
         if not video_id:
             st.error("ID Vidéo introuvable.")
         else:
-            with st.spinner("Extraction des métadonnées et de la transcription..."):
-                details = get_official_youtube_details(video_id, st.secrets["YOUTUBE_API_KEY"])
-                transcript_text = get_transcript_from_1min(video_url, st.secrets["ONEMIN_API_KEY"])
-            
-            if details and transcript_text:
-                try:
-                    client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
-                    
-                    # Configuration stricte du prompt structuré pour alimenter les différents onglets
-                    prompt_text = f"""
-                    Analyse la transcription de cette vidéo YouTube et génère des blocs de données structurés en français selon les instructions exactes suivantes.
-                     Ne mets aucun blabla d'introduction ou de conclusion. Sépare STRICTEMENT chaque grande section par la chaîne de caractères "===SECTION_SEPARATOR===".
+            # Récupération des clés
+            yt_key = st.secrets.get("YOUTUBE_API_KEY", "")
+            onemin_key = st.secrets.get("ONEMIN_API_KEY", "")
+            gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 
-                    [SECTION 1: SYNTHESE]
-                    Rédige un résumé rapide en 2 ou 3 phrases maximum, obligatoirement en italique.
-                    Ajoute ensuite les métadonnées exactement sous cette forme de liste :
+            with st.spinner("Étape 1/2 : Extraction du texte via 1min.ai..."):
+                transcript_text = get_transcript_from_1min(video_url, onemin_key)
+            
+            if not transcript_text:
+                st.error("Erreur : 1min.ai n'a pas pu extraire le texte. Vérifiez votre clé ou vos crédits.")
+            else:
+                with st.spinner("Étape 2/2 : Récupération des métadonnées YouTube..."):
+                    details = get_official_youtube_details(video_id, yt_key)
+                
+                # Gestion du Fallback si l'API YouTube officielle échoue
+                if not details:
+                    st.info("ℹ️ Note : Métadonnées YouTube indisponibles (Quota épuisé ou clé absente). Gemini va les déduire du contenu.")
+                    meta_prompt_part = f"""
+                    - **Titre :** (Déduis le titre le plus probable d'après le texte)
+                    - **Chaîne :** (Déduis le nom de la chaîne ou du locuteur principal d'après le texte)
+                    - **URL :** {video_url}
+                    - **Date :** (Déduis l'année ou la date si mentionnée, sinon indique 'Inconnue')
+                    - **Vues :** Donnée indisponible
+                    """
+                else:
+                    meta_prompt_part = f"""
                     - **Titre :** {details['title']}
                     - **Chaîne :** {details['channel']}
                     - **URL :** {video_url}
                     - **Date :** {details['date']}
                     - **Durée :** {details['duration']}
                     - **Vues :** {int(details['views']):,} vues
+                    """
+
+                try:
+                    client = genai.Client(api_key=gemini_key)
+                    
+                    prompt_text = f"""
+                    Analyse la transcription de cette vidéo YouTube et génère des blocs de données structurés en français selon les instructions exactes suivantes.
+                    Ne mets aucun blabla d'introduction ou de conclusion. Sépare STRICTEMENT chaque grande section par la chaîne de caractères "===SECTION_SEPARATOR===".
+
+                    [SECTION 1: SYNTHESE]
+                    Rédige un résumé rapide en 2 ou 3 phrases maximum, obligatoirement en italique.
+                    Ajoute ensuite les métadonnées exactement sous cette forme de liste :
+                    {meta_prompt_part}
 
                     ===SECTION_SEPARATOR===
 
                     [SECTION 2: DETAIL]
-                    Rédige un résumé en profondeur de la vidéo, structuré en plusieurs paragraphes clairs, denses et très détaillés.
+                    Rédige un résumé en profondeur de la vidéo, structurée en plusieurs paragraphes clairs, denses et très détaillés.
 
                     ===SECTION_SEPARATOR===
 
@@ -220,13 +239,12 @@ if st.button("Lancer l'analyse complète", type="primary"):
                     {transcript_text}
                     """
                     
-                    with st.spinner("Génération du rapport intelligent..."):
+                    with st.spinner("Gemini génère le rapport d'analyse..."):
                         response = client.models.generate_content(
                             model='gemini-2.5-flash',
                             contents=prompt_text
                         )
                     
-                    # Découpage des données renvoyées par Gemini pour les dispatcher dans la session
                     sections = response.text.split("===SECTION_SEPARATOR===")
                     st.session_state['report_data'] = {
                         "synth": sections[0].strip() if len(sections) > 0 else "",
@@ -234,13 +252,11 @@ if st.button("Lancer l'analyse complète", type="primary"):
                         "points": sections[2].strip() if len(sections) > 2 else "",
                         "citations": sections[3].strip() if len(sections) > 3 else ""
                     }
-                    st.session_state["current_tab"] = "📊 Synthèse" # Focus immédiat sur la Tab principale
+                    st.session_state["current_tab"] = "📊 Synthèse"
                     st.rerun()
                     
                 except Exception as e:
                     st.error(f"Erreur d'analyse IA : {str(e)}")
-            else:
-                st.error("Impossible de récupérer les flux de données requis.")
 
 # --- RENDU DE L'ONGLET SÉLECTIONNÉ ---
 if 'report_data' in st.session_state:
@@ -265,7 +281,6 @@ if 'report_data' in st.session_state:
         st.subheader("📋 Copie brute du rapport complet (Markdown / Texte Riche)")
         st.write("Sélectionnez tout le texte ci-dessous ou cliquez sur le bouton de copie pour l'ajouter directement dans vos tuiles d'application :")
         
-        # Consolidation totale de toutes les parties pour un export propre d'un coup
         full_markdown = f"{data['synth']}\n\n---\n\n{data['detail']}\n\n---\n\n{data['points']}\n\n---\n\n{data['citations']}"
         st.code(full_markdown, language="markdown")
         
