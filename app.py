@@ -7,7 +7,7 @@ from google import genai
 st.set_page_config(page_title="YouTube Video Summarizer", page_icon="📊", layout="wide")
 
 st.title("📊 Analyseur & Extracteur de Contenu YouTube (via 1min.ai)")
-st.write("Cette version utilise l'API de 1min.ai pour extraire le contenu sans blocage, et Gemini pour le rapport.")
+st.write("Cette version utilise l'API officielle de 1min.ai pour extraire le texte, puis Gemini pour structurer le rapport.")
 
 # Sidebar pour les clés API
 with st.sidebar:
@@ -20,49 +20,48 @@ with st.sidebar:
 # Champ de saisie
 video_url = st.text_input("Entrez l'URL de la vidéo YouTube :", placeholder="https://www.youtube.com/watch?v=...")
 
+# Fonction officielle adaptée à la documentation 1min.ai
 def get_transcript_from_1min(url, api_key):
-    # Endpoint standard de 1min.ai
-    api_url = "https://api.1min.ai/v1/audio/transcribe" 
+    # Route unique de l'API Feature de 1min.ai
+    api_url = "https://api.1min.ai/api/features" 
     
+    # Headers obligatoires selon leur doc
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "API-KEY": api_key,
         "Content-Type": "application/json"
     }
     
+    # Payload strict demandé par le module YOUTUBE_TRANSCRIBER
     payload = {
-        "url": url,
-        "language": "fr"
+        "type": "YOUTUBE_TRANSCRIBER",
+        "model": "gpt-4o",  # Modèle d'extraction par défaut de leur côté
+        "conversationId": "YOUTUBE_TRANSCRIBER",
+        "promptObject": {
+            "videoUrl": url
+        }
     }
     
     try:
         response = requests.post(api_url, json=payload, headers=headers)
         
-        # AJOUT TEMPORAIRE : On affiche la réponse brute pour comprendre le format
-        st.subheader("🔍 Mode Diagnostic 1min.ai")
-        st.write(f"Code HTTP reçu : {response.status_code}")
-        try:
-            st.json(response.json()) # Affiche le JSON propre dans l'interface
-            data = response.json()
-        except:
-            st.text(f"Réponse texte brute : {response.text}")
-            return None
-
-        # Tentative d'extraction intelligente selon les formats connus de 1min.ai
         if response.status_code in [200, 201]:
-            # Format 1: imbriqué dans un objet 'data'
-            if "data" in data:
-                sub_data = data["data"]
-                if isinstance(sub_data, dict):
-                    return sub_data.get("transcript") or sub_data.get("text") or sub_data.get("result")
-                return str(sub_data)
+            data = response.json()
             
-            # Format 2: direct à la racine
-            return data.get("transcript") or data.get("text") or data.get("result")
-            
+            # 1min.ai renvoie souvent un statut immédiat ou le résultat direct dans une clé text/result
+            if isinstance(data, dict):
+                # Extraction du texte selon la structure de leur réponse
+                transcript = data.get("result") or data.get("text") or data.get("transcript")
+                if transcript:
+                    return transcript
+                # Si imbriqué dans un sous-objet 'data'
+                if "data" in data and isinstance(data["data"], dict):
+                    return data["data"].get("result") or data["data"].get("text")
+            return str(data)
+        else:
+            st.error(f"Erreur de l'API 1min.ai (Code {response.status_code}) : {response.text}")
     except Exception as e:
         st.error(f"Erreur technique lors de l'appel : {str(e)}")
     return None
-
 
 if st.button("Analyser la vidéo", type="primary"):
     if not gemini_key or not onemin_key:
@@ -70,19 +69,19 @@ if st.button("Analyser la vidéo", type="primary"):
     elif not video_url:
         st.warning("Veuillez entrer une URL valide.")
     else:
-        with st.spinner("1min.ai extrait le contenu de la vidéo (cela peut prendre un instant)..."):
+        with st.spinner("1min.ai extrait le contenu de la vidéo... Cela peut prendre 15 à 45 secondes."):
             transcript_text = get_transcript_from_1min(video_url, onemin_key)
         
         if not transcript_text:
-            st.error("L'API 1min.ai n'a pas réussi à récupérer ou transcrire cette vidéo. Vérifiez vos crédits ou l'URL.")
+            st.error("Impossible de récupérer la transcription de la vidéo via 1min.ai.")
         else:
-            st.success("🎯 Contenu récupéré par 1min.ai ! Génération du rapport par Gemini...")
+            st.success("🎯 Transcription récupérée avec succès par 1min.ai ! Génération du rapport par Gemini...")
             
             try:
                 client = genai.Client(api_key=gemini_key)
                 
                 prompt_text = f"""
-                Agis comme un analyste expert. Analyse attentivement la transcription/contenu de la vidéo YouTube suivante et rédige un rapport structuré en français.
+                Agis comme un analyste expert. Analyse attentivement la transcription textuelle de la vidéo YouTube fournie ci-dessous et rédige un rapport structuré en français.
                 Respecte SCRUPULEUSEMENT le plan suivant :
 
                 ## 📝 Résumé rapide
@@ -91,10 +90,10 @@ if st.button("Analyser la vidéo", type="primary"):
                 ---
 
                 ## ℹ️ Informations
-                - **Titre :** (Déduis le titre le plus probable)
-                - **Chaîne :** (Identifie l'orateur ou la chaîne si mentionné)
-                - **Date :** (Indique l'année ou l'époque si mentionnée)
-                - **Durée :** (Estime la durée d'après le texte)
+                - **Titre :** (Déduis le titre exact ou probable de la vidéo d'après le contexte)
+                - **Chaîne :** (Identifie l'orateur ou la chaîne d'après le texte)
+                - **Date :** (La date ou l'époque estimée d'après les propos)
+                - **Durée :** (Estime la durée ou indique "Non calculé")
                 - **Langue :** Français
                 - **Vues :** Non extrait
 
@@ -116,10 +115,10 @@ if st.button("Analyser la vidéo", type="primary"):
                 ---
 
                 ## 📌 Références citées
-                - **📚 Livres :** (Liste des livres ou documents cités. Si aucun, écris "Aucun livre mentionné")
-                - **👤 Personnalités :** (Liste des personnes, experts ou figures cités. Si aucune, écris "Aucune personnalité mentionnée")
+                - **📚 Livres :** (Liste des livres, ouvrages ou documents cités d'après la transcription. Si aucun, écris "Aucun livre mentionné")
+                - **👤 Personnalités :** (Liste des personnes, auteurs, experts ou figures historiques cités. Si aucune, écris "Aucune personnalité mentionnée")
 
-                Voici le texte de la vidéo à analyser :
+                Voici le contenu de la vidéo extrait par 1min.ai à analyser :
                 {transcript_text}
                 """
                 
