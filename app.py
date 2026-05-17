@@ -1,10 +1,8 @@
 import streamlit as st
-import requests
 import sys
-from google import genai
 
 # Configuration de la page avec thème sombre natif forcé via le design
-st.set_page_config(page_title="Analyseur YouTube", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Analyseur YouTube (Mode UI Studio)", page_icon="📊", layout="wide")
 
 # --- INJECTION CSS POUR INTERFACE MODERNE ET TABS FIXES ---
 st.markdown("""
@@ -44,6 +42,12 @@ st.markdown("""
         margin-bottom: 2rem;
     }
 
+    /* Ajustement spécifique pour l'alignement vertical du bouton URL */
+    .url-container {
+        display: flex;
+        align-items: flex-end;
+    }
+
     /* Barre d'onglets FIXE en haut de la page lors du scroll */
     .fixed-nav {
         position: fixed;
@@ -77,7 +81,7 @@ def check_password():
     st.markdown('<h2 style="text-align:center;">🔒 Accès Sécurisé</h2>', unsafe_allow_html=True)
     password = st.text_input("Code d'accès :", type="password")
     if st.button("Se connecter", type="primary"):
-        if password == st.secrets["APP_PASSWORD"]:
+        if password == st.secrets.get("APP_PASSWORD", "admin"): # "admin" par défaut si test local sans secrets
             st.session_state["password_correct"] = True
             st.rerun()
         else:
@@ -88,248 +92,123 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- INITIALISATION DES ÉTATS ET DU BUFFER DE DEBUG ---
+# --- INITIALISATION DES ÉTATS ET JEU DE DONNÉES DE TEST (CRÉDITS PARÉS) ---
 if "current_tab" not in st.session_state:
     st.session_state["current_tab"] = "📊 Synthèse"
+
 if "debug_logs" not in st.session_state:
-    st.session_state["debug_logs"] = []
+    st.session_state["debug_logs"] = [
+        "⚙️ [MODE STUDIO UI] Initialisation du layout fictif réussie.",
+        "📡 1min.ai : Mock HTTP 200 (Mode simulation activé, aucun crédit consommé)",
+        "📝 Faux rapport injecté avec succès pour l'ajustement des styles graphiques."
+    ]
 
-def add_log(message):
-    st.session_state["debug_logs"].append(message)
+# Génération automatique du faux contenu pour travailler l'UI sereinement
+if 'report_data' not in st.session_state:
+    st.session_state['report_data'] = {
+        "synth": """
+*Cette vidéo propose une immersion complète au cœur des architectures logicielles modernes. L'intervenant y décortique les transitions complexes des monolithes vers les microservices, tout en mettant en garde contre le piège de la sur-ingénierie dans les projets à forte scalabilité.*
 
-# --- LOGIQUE D'EXTRACTION ---
-def extract_id(url):
-    if "youtu.be/" in url: return url.split("youtu.be/")[1].split("?")[0]
-    elif "watch?v=" in url: return url.split("watch?v=")[1].split("&")[0]
-    return None
+- **Titre :** Maîtriser l'Architecture Logicielle en 2026 : Au-delà du Buzzword
+- **Chaîne :** TechArchitect Pro
+- **URL :** https://youtu.be/Jx_VtbJFLX8
+- **Date :** 14/05/2026
+- **Durée :** 24m 42s
+- **Vues :** 128,450 vues
+""",
+        "detail": """
+### 🏢 Chapitre 1 : L'illusion du découpage systématique
+La vidéo débute par une critique constructive de la mode du "tout-microservices". Trop souvent, les équipes choisissent ce pattern d'architecture pour des raisons culturelles ou managériales plutôt que techniques. L'auteur rappelle que diviser une base de code augmente drastiquement la complexité réseau, la latence et rend la gestion des transactions distribuées particulièrement difficile.
 
-def get_official_youtube_details(v_id, yt_key):
-    url = f"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id={v_id}&key={yt_key}"
-    try:
-        res = requests.get(url).json()
-        if "items" in res and len(res["items"]) > 0:
-            item = res["items"][0]
-            raw_date = item["snippet"]["publishedAt"][:10]
-            year, month, day = raw_date.split("-")
-            add_log("✅ API YouTube : Métadonnées récupérées avec succès.")
-            return {
-                "title": item["snippet"]["title"],
-                "channel": item["snippet"]["channelTitle"],
-                "date": f"{day}/{month}/{year}",
-                "duration": item["contentDetails"]["duration"].replace("PT", "").lower(),
-                "views": item["statistics"].get("viewCount", "0"),
-                "lang": item["snippet"].get("defaultAudioLanguage", "FR").upper()
-            }
-    except Exception as e:
-        add_log(f"❌ API YouTube Erreur : {str(e)}")
-    return None
+### 🌐 Chapitre 2 : La communication inter-services
+Dans un second temps, l'analyse se porte sur l'importance du choix entre protocoles synchrones (REST, gRPC) et asynchrones (Event-driven avec Kafka ou RabbitMQ). Le recours à l'asynchronisme est présenté comme le véritable pilier de la résilience, permettant de découpler efficacement la disponibilité des systèmes sous-jacents.
+""",
+        "points": """
+1. **Le Monolithe modulaire d'abord** : Il est presque toujours préférable de démarrer avec une base de code unifiée mais rigoureusement segmentée en packages étanches avant de casser le modèle.
+2. **Taxe Réseau** : Tout appel réseau a un coût. Multiplier les microservices sans une couche de cache ou un API Gateway performant détruit l'expérience utilisateur.
+3. **Obsolescence technique** : Choisir un outil uniquement parce qu'il est poussé par les GAFAM est la cause numéro 1 des échecs de refonte.
 
-# Parseur robuste à passage unique (sans boucle) qui cherche le texte partout dans l'objet reçu
-def get_transcript_from_1min(url, api_key):
-    api_url = "https://api.1min.ai/api/features" 
-    headers = {"API-KEY": api_key, "Content-Type": "application/json"}
-    payload = {
-        "type": "YOUTUBE_TRANSCRIBER",
-        "model": "gpt-4o",
-        "conversationId": "YOUTUBE_TRANSCRIBER",
-        "promptObject": {"videoUrl": url}
+### 🔢 Chiffres clés par Thématiques
+### 💻 Performances Système
+- **99.9%** : Objectif de disponibilité (SLA) ciblé par la mise en place de patterns de Circuit Breaker.
+- **< 45ms** : Latence maximale tolérée pour les échanges inter-services via gRPC.
+
+### 👥 Gestion des Équipes
+- **2 Pizzas Team** : La taille idéale d'une équipe technique pour maintenir un domaine métier autonome sans surcharge de communication.
+- **35%** : Réduction du temps de déploiement observée après la mise en conformité des contrats d'API.
+""",
+        "citations": """
+### 💬 Citations fortes
+- « Un mauvais monolithe transformé en microservices devient simplement un micro-bazar distribué. » *(Explique que déplacer le code sans revoir les frontières du domaine métier aggrave les problèmes au lieu de les résoudre)*.
+- « Si votre base de données est partagée entre trois services, vous n'avez pas des microservices, vous avez un monolithe distribué secret. » *(Met en lumière l'erreur classique de couplage fort au niveau de la couche de persistance)*.
+
+### 📚 Références et Livres mentionnés
+- **Designing Data-Intensive Applications** par *Martin Kleppmann* (Le guide absolu pour comprendre le stockage et le traitement des données à grande échelle).
+- **Domain-Driven Design (DDD)** par *Eric Evans* (L'approche conceptuelle indispensable pour découpler ses services d'après les contextes bornés du business).
+"""
     }
-    try:
-        response = requests.post(api_url, json=payload, headers=headers)
-        add_log(f"📡 1min.ai : HTTP {response.status_code}")
-        if response.status_code in [200, 201]:
-            data = response.json()
-            add_log(f"📄 1min.ai JSON complet reçu (extrait) : {str(data)[:1000]}...")
-            
-            # --- STRATÉGIE DE PARSING MULTI-NIVEAUX ---
-            # Étape 1 : Exploration à la racine
-            if "resultObject" in data and data["resultObject"]:
-                if isinstance(data["resultObject"], list) and len(data["resultObject"]) > 0:
-                    return data["resultObject"][0]
-                return str(data["resultObject"])
 
-            # Étape 2 : Exploration dans le bloc aiRecordDetail
-            record_detail = data.get("aiRecordDetail", {})
-            if isinstance(record_detail, dict):
-                prompt_obj = record_detail.get("promptObject", {})
-                if isinstance(prompt_obj, dict) and "prompt" in prompt_obj:
-                    raw_text = prompt_obj["prompt"]
-                    if "xml data for reference:" in raw_text.lower():
-                        return raw_text.split("```xml")[-1].replace("```", "").strip()
-                    return raw_text
-
-            # Étape 3 : Exploration dans le sous-bloc aiRecord (votre structure du log)
-            ai_record = data.get("aiRecord", {})
-            if isinstance(ai_record, dict):
-                # Parfois imbriqué dans aiRecord -> promptObject ou resultObject
-                inner_detail = ai_record.get("aiRecordDetail", {}) or ai_record
-                if isinstance(inner_detail, dict):
-                    p_obj = inner_detail.get("promptObject", {})
-                    if isinstance(p_obj, dict) and "prompt" in p_obj:
-                        return p_obj["prompt"]
-                    if "resultObject" in inner_detail:
-                        res_obj = inner_detail["resultObject"]
-                        if isinstance(res_obj, list) and len(res_obj) > 0: return res_obj[0]
-                        return str(res_obj)
-
-            add_log("⚠️ Parseur : Clé de texte introuvable malgré le succès HTTP.")
-    except Exception as e:
-        add_log(f"❌ 1min.ai Erreur critique de parsing : {str(e)}")
-    return None
-
-# --- NAVIGATION INTERNE (TABS FIXES) ---
-if 'report_data' in st.session_state:
-    cols = st.columns(5)
-    tabs_list = ["📊 Synthèse", "📖 Analyse détaillée", "💡 Points clés", "💬 Citations", "📋 Export XTile"]
-    
-    st.markdown('<div class="fixed-nav">', unsafe_allow_html=True)
-    for i, tab_name in enumerate(tabs_list):
-        with cols[i]:
-            is_active = st.session_state["current_tab"] == tab_name
-            if st.button(tab_name, key=f"nav_{tab_name}", use_container_width=True, type="primary" if is_active else "secondary"):
-                st.session_state["current_tab"] = tab_name
-                st.rerun()
-    st.markdown('</div><div class="scroll-padding"></div>', unsafe_allow_html=True)
-
-# --- INTERFACE VISUELLE ---
+# --- INTERFACE VISUELLE (TITRE & SOUS-TITRE) ---
 st.markdown('<h1 class="main-title">Analyseur YouTube</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">Résumé, points clés, chiffres et références extraits en quelques secondes</p>', unsafe_allow_html=True)
 
+# --- ZONE URL + BOUTON À DROITE (SUR LA MÊME LIGNE) ---
 st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-video_url = st.text_input("URL DE LA VIDÉO", placeholder="https://www.youtube.com/watch?v=...")
+col_url, col_btn = st.columns([5, 1]) # 5/6 pour l'input, 1/6 pour le bouton
+
+with col_url:
+    dummy_url = st.text_input("URL DE LA VIDÉO", value="https://youtu.be/Jx_VtbJFLX8", placeholder="https://www.youtube.com/watch?v=...")
+
+with col_btn:
+    # Petit hack CSS de marge supérieure pour aligner parfaitement le bouton avec le champ de saisie
+    st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+    if st.button("Analyser", type="primary", use_container_width=True):
+        st.toast("Mode Simulation : Aucun crédit consommé !", icon="🚀")
 st.markdown('</div>', unsafe_allow_html=True)
 
-if st.button("Lancer l'analyse complète", type="primary"):
-    if not video_url:
-        st.warning("Veuillez entrer une URL valide.")
-    else:
-        st.session_state["debug_logs"] = [] 
-        add_log(f"🚀 Nouvelle analyse demandée pour l'URL : {video_url}")
-        
-        video_id = extract_id(video_url)
-        add_log(f"🆔 ID vidéo extrait : {video_id}")
-        
-        if not video_id:
-            st.error("ID Vidéo introuvable.")
-        else:
-            yt_key = st.secrets.get("YOUTUBE_API_KEY", "")
-            onemin_key = st.secrets.get("ONEMIN_API_KEY", "")
-            gemini_key = st.secrets.get("GEMINI_API_KEY", "")
+# --- NAVIGATION INTERNE (TABULATION FIXE) ---
+cols = st.columns(5)
+tabs_list = ["📊 Synthèse", "📖 Analyse détaillée", "💡 Points clés", "💬 Citations", "📋 Export XTile"]
 
-            with st.spinner("Extraction du texte via 1min.ai..."):
-                transcript_text = get_transcript_from_1min(video_url, onemin_key)
-            
-            if not transcript_text:
-                st.error("Erreur : Impossible de lire la transcription. Regarde le détail dans le panneau de Debug en bas.")
-            else:
-                add_log(f"📝 Transcription validée pour Gemini ({len(transcript_text)} caractères)")
-                with st.spinner("Récupération des métadonnées YouTube..."):
-                    details = get_official_youtube_details(video_id, yt_key)
-                
-                if not details:
-                    meta_prompt_part = f"""
-                    - **Titre :** (Déduis le titre le plus probable d'après le texte)
-                    - **Chaîne :** (Déduis le nom de la chaîne ou du locuteur principal d'après le texte)
-                    - **URL :** {video_url}
-                    - **Date :** (Déduis l'année ou la date si mentionnée, sinon indique 'Inconnue')
-                    - **Vues :** Donnée indisponible
-                    """
-                else:
-                    meta_prompt_part = f"""
-                    - **Titre :** {details['title']}
-                    - **Chaîne :** {details['channel']}
-                    - **URL :** {video_url}
-                    - **Date :** {details['date']}
-                    - **Durée :** {details['duration']}
-                    - **Vues :** {int(details['views']):,} vues
-                    """
+st.markdown('<div class="fixed-nav">', unsafe_allow_html=True)
+for i, tab_name in enumerate(tabs_list):
+    with cols[i]:
+        is_active = st.session_state["current_tab"] == tab_name
+        if st.button(tab_name, key=f"nav_{tab_name}", use_container_width=True, type="primary" if is_active else "secondary"):
+            st.session_state["current_tab"] = tab_name
+            st.rerun()
+st.markdown('</div><div class="scroll-padding"></div>', unsafe_allow_html=True)
 
-                try:
-                    client = genai.Client(api_key=gemini_key)
-                    
-                    prompt_text = f"""
-                    Analyse la transcription de cette vidéo YouTube et génère des blocs de données structurés en français selon les instructions exactes suivantes.
-                    Ne mets aucun blabla d'introduction ou de conclusion. Sépare STRICTEMENT chaque grande section par la chaîne de caractères "===SECTION_SEPARATOR===".
+# --- RENDU DYNAMIQUE DU CONTENU DES SECTIONS ---
+st.markdown('<div class="glass-card">', unsafe_allow_html=True)
 
-                    [SECTION 1: SYNTHESE]
-                    Rédige un résumé rapide en 2 ou 3 phrases maximum, obligatoirement en italique.
-                    Ajoute ensuite les métadonnées exactement sous cette forme de liste :
-                    {meta_prompt_part}
+active = st.session_state["current_tab"]
+data = st.session_state['report_data']
 
-                    ===SECTION_SEPARATOR===
-
-                    [SECTION 2: DETAIL]
-                    Rédige un résumé en profondeur de la vidéo, structurée en plusieurs paragraphes clairs, denses et très détaillés.
-
-                    ===SECTION_SEPARATOR===
-
-                    [SECTION 3: POINTS_CLES]
-                    Génère une liste numérotée des concepts essentiels développés.
-                    Ensuite, crée une sous-section nommée "### 🔢 Chiffres clés par Thématiques". Regroupe obligatoirement TOUTES les statistiques et données chiffrées de la vidéo sous des titres thématiques clairs (ex: ### Économie, ### Données démographiques, etc.).
-
-                    ===SECTION_SEPARATOR===
-
-                    [SECTION 4: CITATIONS_REFERENCES]
-                    Crée une rubrique "### 💬 Citations fortes". Extrais au moins 3 à 5 citations textuelles marquantes ou phrases clés dites dans la vidéo. Pour chaque citation, ajoute obligatoirement entre parenthèses juste après une explication du contexte ou de ce qu'elle implique. Formate ainsi : "« Citation » *(Contexte explicatif)*".
-                    Ajoute ensuite la liste des Livres et Personnalités (avec brève description de qui ils sont).
-
-                    Transcription :
-                    {transcript_text}
-                    """
-                    
-                    with st.spinner("Gemini génère le rapport d'analyse..."):
-                        response = client.models.generate_content(
-                            model='gemini-2.5-flash',
-                            contents=prompt_text
-                        )
-                    
-                    sections = response.text.split("===SECTION_SEPARATOR===")
-                    st.session_state['report_data'] = {
-                        "synth": sections[0].strip() if len(sections) > 0 else "",
-                        "detail": sections[1].strip() if len(sections) > 1 else "",
-                        "points": sections[2].strip() if len(sections) > 2 else "",
-                        "citations": sections[3].strip() if len(sections) > 3 else ""
-                    }
-                    st.session_state["current_tab"] = "📊 Synthèse"
-                    st.rerun()
-                    
-                except Exception as e:
-                    add_log(f"❌ Gemini Erreur : {str(e)}")
-                    st.error(f"Erreur d'analyse IA : {str(e)}")
-
-# --- RENDU DE L'ONGLET SÉLECTIONNÉ ---
-if 'report_data' in st.session_state:
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+if active == "📊 Synthèse":
+    st.markdown(data["synth"])
+elif active == "📖 Analyse détaillée":
+    st.markdown(data["detail"])
+elif active == "💡 Points clés":
+    st.markdown(data["points"])
+elif active == "💬 Citations":
+    st.markdown(data["citations"])
+elif active == "📋 Export XTile":
+    st.subheader("📋 Copie brute du rapport complet (Markdown)")
+    full_markdown = f"{data['synth']}\n\n---\n\n{data['detail']}\n\n---\n\n{data['points']}\n\n---\n\n{data['citations']}"
+    st.code(full_markdown, language="markdown")
     
-    active = st.session_state["current_tab"]
-    data = st.session_state['report_data']
-    
-    if active == "📊 Synthèse":
-        st.markdown(data["synth"])
-    elif active == "📖 Analyse détaillée":
-        st.markdown(data["detail"])
-    elif active == "💡 Points clés":
-        st.markdown(data["points"])
-    elif active == "💬 Citations":
-        st.markdown(data["citations"])
-    elif active == "📋 Export XTile":
-        st.subheader("📋 Copie brute du rapport complet")
-        full_markdown = f"{data['synth']}\n\n---\n\n{data['detail']}\n\n---\n\n{data['points']}\n\n---\n\n{data['citations']}"
-        st.code(full_markdown, language="markdown")
-        
-    st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
 # --- ZONE DE DEBUG EN BAS DE PAGE ---
 st.markdown("<br><br><hr style='border: 1px solid rgba(255,255,255,0.05);'>", unsafe_allow_html=True)
-with st.expander("🛠️ Console de Diagnostic technique (Debug)", expanded=False):
-    st.subheader("⚙️ État des Secrets")
+with st.expander("🛠️ Console de Diagnostic technique (Debug)", expanded=True): # Ouvert par défaut pour travailler l'UI
+    st.subheader("⚙️ État des Secrets (Simulation)")
     col_s1, col_s2, col_s3 = st.columns(3)
-    with col_s1: st.metric("GEMINI_API_KEY", "Présente ✅" if "GEMINI_API_KEY" in st.secrets else "Absente ❌")
-    with col_s2: st.metric("ONEMIN_API_KEY", "Présente ✅" if "ONEMIN_API_KEY" in st.secrets else "Absente ❌")
-    with col_s3: st.metric("YOUTUBE_API_KEY", "Présente ✅" if "YOUTUBE_API_KEY" in st.secrets else "Absente ❌")
+    with col_s1: st.metric("GEMINI_API_KEY", "Simulation active Mode UI 🛡️")
+    with col_s2: st.metric("ONEMIN_API_KEY", "Crédits préservés 💸")
+    with col_s3: st.metric("YOUTUBE_API_KEY", "Hors ligne 🌐")
         
-    st.subheader("📜 Logs d'exécution")
-    if st.session_state["debug_logs"]:
-        st.code("\n".join(st.session_state["debug_logs"]), language="text")
-    else:
-        st.info("Aucun log disponible.")
+    st.subheader("📜 Logs d'exécution simulés")
+    log_text = "\n".join(st.session_state["debug_logs"])
+    st.code(log_text, language="text")
