@@ -1,6 +1,6 @@
 import streamlit as st
 import requests
-import time
+import sys
 from google import genai
 
 # Configuration de la page avec thème sombre natif forcé via le design
@@ -88,9 +88,14 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- INITIALISATION DES ÉTATS ---
+# --- INITIALISATION DES ÉTATS ET DU BUFFER DE DEBUG ---
 if "current_tab" not in st.session_state:
     st.session_state["current_tab"] = "📊 Synthèse"
+if "debug_logs" not in st.session_state:
+    st.session_state["debug_logs"] = []
+
+def add_log(message):
+    st.session_state["debug_logs"].append(message)
 
 # --- LOGIQUE D'EXTRACTION ---
 def extract_id(url):
@@ -106,6 +111,7 @@ def get_official_youtube_details(v_id, yt_key):
             item = res["items"][0]
             raw_date = item["snippet"]["publishedAt"][:10]
             year, month, day = raw_date.split("-")
+            add_log("✅ API YouTube : Métadonnées récupérées avec succès.")
             return {
                 "title": item["snippet"]["title"],
                 "channel": item["snippet"]["channelTitle"],
@@ -114,10 +120,12 @@ def get_official_youtube_details(v_id, yt_key):
                 "views": item["statistics"].get("viewCount", "0"),
                 "lang": item["snippet"].get("defaultAudioLanguage", "FR").upper()
             }
-    except: pass
+        else:
+            add_log(f"⚠️ API YouTube : Réponse vide ou structure incorrecte. JSON reçu: {res}")
+    except Exception as e:
+        add_log(f"❌ API YouTube Erreur : {str(e)}")
     return None
 
-# Fonction d'extraction robuste avec gestion du cycle de vie de l'API (Asynchrone / Polling)
 def get_transcript_from_1min(url, api_key):
     api_url = "https://api.1min.ai/api/features" 
     headers = {"API-KEY": api_key, "Content-Type": "application/json"}
@@ -127,41 +135,26 @@ def get_transcript_from_1min(url, api_key):
         "conversationId": "YOUTUBE_TRANSCRIBER",
         "promptObject": {"videoUrl": url}
     }
-    
     try:
-        # 1. Lancement ou récupération de la tâche
         response = requests.post(api_url, json=payload, headers=headers)
-        if response.status_code not in [200, 201]:
-            return None
+        add_log(f"📡 1min.ai : HTTP {response.status_code}")
+        if response.status_code in [200, 201]:
+            data = response.json()
+            add_log(f"📄 1min.ai Corps de réponse (extrait) : {str(data)[:500]}...")
             
-        data = response.json()
-        
-        # 2. Boucle de vérification (jusqu'à 15 tentatives, soit 45 secondes max)
-        for attempt in range(15):
             if isinstance(data, dict):
-                # Si le statut est SUCCESS, on extrait et on sort immédiatement
-                if data.get("aiRecord", {}).get("status") == "SUCCESS" or "resultObject" in data:
-                    if "aiRecordDetail" in data and isinstance(data["aiRecordDetail"], dict):
-                        prompt_obj = data["aiRecordDetail"].get("promptObject", {})
-                        if isinstance(prompt_obj, dict) and "prompt" in prompt_obj:
-                            raw_text = prompt_obj["prompt"]
-                            if "xml data for reference:" in raw_text.lower():
-                                return raw_text.split("```xml")[-1].replace("```", "").strip()
-                            return raw_text
-                    
-                    if "resultObject" in data and isinstance(data["resultObject"], list) and len(data["resultObject"]) > 0:
-                        return data["resultObject"][0]
-                
-                # Si c'est encore en cours de traitement (PROCESSING ou PENDING)
-                # On attend 3 secondes et on relance exactement la même requête pour rafraîchir le statut
-                time.sleep(3)
-                refresh_res = requests.post(api_url, json=payload, headers=headers)
-                if refresh_res.status_code in [200, 201]:
-                    data = refresh_res.json()
-            else:
-                break
-                
-    except: pass
+                if "aiRecordDetail" in data and isinstance(data["aiRecordDetail"], dict):
+                    prompt_obj = data["aiRecordDetail"].get("promptObject", {})
+                    if isinstance(prompt_obj, dict) and "prompt" in prompt_obj:
+                        raw_text = prompt_obj["prompt"]
+                        if "xml data for reference:" in raw_text.lower():
+                            return raw_text.split("```xml")[-1].replace("```", "").strip()
+                        return raw_text
+                if "resultObject" in data and isinstance(data["resultObject"], list) and len(data["resultObject"]) > 0:
+                    return data["resultObject"][0]
+            add_log("⚠️ 1min.ai : Structure JSON reçue non gérée par le parseur.")
+    except Exception as e:
+        add_log(f"❌ 1min.ai Erreur critique : {str(e)}")
     return None
 
 # --- NAVIGATION INTERNE (TABS FIXES) ---
@@ -190,7 +183,12 @@ if st.button("Lancer l'analyse complète", type="primary"):
     if not video_url:
         st.warning("Veuillez entrer une URL valide.")
     else:
+        st.session_state["debug_logs"] = [] # Reset logs pour cette session
+        add_log(f"🚀 Nouvelle analyse demandée pour l'URL : {video_url}")
+        
         video_id = extract_id(video_url)
+        add_log(f"🆔 ID vidéo extrait : {video_id}")
+        
         if not video_id:
             st.error("ID Vidéo introuvable.")
         else:
@@ -198,18 +196,17 @@ if st.button("Lancer l'analyse complète", type="primary"):
             onemin_key = st.secrets.get("ONEMIN_API_KEY", "")
             gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 
-            # Message d'attente dynamique et rassurant
-            with st.spinner("Extraction de la transcription via 1min.ai (Cette étape peut prendre jusqu'à 30 secondes pour les nouvelles vidéos)..."):
+            with st.spinner("Étape 1/2 : Extraction du texte via 1min.ai..."):
                 transcript_text = get_transcript_from_1min(video_url, onemin_key)
             
             if not transcript_text:
-                st.error("Erreur : 1min.ai met trop de temps à répondre ou vos crédits sont épuisés. Réessayez dans un instant.")
+                st.error("Erreur : Impossible de récupérer la transcription de 1min.ai.")
             else:
-                with st.spinner("Récupération des métadonnées YouTube..."):
+                add_log(f"📝 Transcription récupérée avec succès ({len(transcript_text)} caractères)")
+                with st.spinner("Étape 2/2 : Récupération des métadonnées YouTube..."):
                     details = get_official_youtube_details(video_id, yt_key)
                 
                 if not details:
-                    st.info("ℹ️ Note : Métadonnées YouTube indisponibles (Quota épuisé ou clé absente). Gemini va les déduire du contenu.")
                     meta_prompt_part = f"""
                     - **Titre :** (Déduis le titre le plus probable d'après le texte)
                     - **Chaîne :** (Déduis le nom de la chaîne ou du locuteur principal d'après le texte)
@@ -266,6 +263,7 @@ if st.button("Lancer l'analyse complète", type="primary"):
                             contents=prompt_text
                         )
                     
+                    add_log("🤖 API Gemini : Réponse générée.")
                     sections = response.text.split("===SECTION_SEPARATOR===")
                     st.session_state['report_data'] = {
                         "synth": sections[0].strip() if len(sections) > 0 else "",
@@ -277,6 +275,7 @@ if st.button("Lancer l'analyse complète", type="primary"):
                     st.rerun()
                     
                 except Exception as e:
+                    add_log(f"❌ Gemini Erreur : {str(e)}")
                     st.error(f"Erreur d'analyse IA : {str(e)}")
 
 # --- RENDU DE L'ONGLET SÉLECTIONNÉ ---
@@ -288,21 +287,40 @@ if 'report_data' in st.session_state:
     
     if active == "📊 Synthèse":
         st.markdown(data["synth"])
-        
     elif active == "📖 Analyse détaillée":
         st.markdown(data["detail"])
-        
     elif active == "💡 Points clés":
         st.markdown(data["points"])
-        
     elif active == "💬 Citations":
         st.markdown(data["citations"])
-        
     elif active == "📋 Export XTile":
-        st.subheader("📋 Copie brute du rapport complet (Markdown / Texte Riche)")
-        st.write("Sélectionnez tout le texte ci-dessous ou cliquez sur le bouton de copie pour l'ajouter directement dans vos tuiles d'application :")
-        
+        st.subheader("📋 Copie brute du rapport complet")
         full_markdown = f"{data['synth']}\n\n---\n\n{data['detail']}\n\n---\n\n{data['points']}\n\n---\n\n{data['citations']}"
         st.code(full_markdown, language="markdown")
         
     st.markdown('</div>', unsafe_allow_html=True)
+
+# --- ZONE DE DEBUG DYNAMIQUE EN BAS DE PAGE ---
+st.markdown("<br><br><hr style='border: 1px solid rgba(255,255,255,0.05);'>", unsafe_allow_html=True)
+with st.expander("🛠️ Console de Diagnostic technique (Debug)", expanded=False):
+    st.subheader("⚙️ État des Secrets & de l'Environnement")
+    
+    # 1. Vérification sécurisée de la présence des clés sans les afficher
+    col_s1, col_s2, col_s3 = st.columns(3)
+    with col_s1:
+        st.metric("GEMINI_API_KEY", "Présente ✅" if "GEMINI_API_KEY" in st.secrets else "Absente ❌")
+    with col_s2:
+        st.metric("ONEMIN_API_KEY", "Présente ✅" if "ONEMIN_API_KEY" in st.secrets else "Absente ❌")
+    with col_s3:
+        st.metric("YOUTUBE_API_KEY", "Présente ✅" if "YOUTUBE_API_KEY" in st.secrets else "Absente ❌")
+        
+    # 2. Informations système de base
+    st.markdown(f"**Version Python :** `{sys.version.split()[0]}` | **Version Streamlit :** `{st.__version__}`")
+    
+    # 3. Affichage de la trace des logs de la session courante
+    st.subheader("📜 Logs d'exécution de la dernière action")
+    if st.session_state["debug_logs"]:
+        log_text = "\n".join(st.session_state["debug_logs"])
+        st.code(log_text, language="text")
+    else:
+        st.info("Aucun log d'analyse généré pour le moment. Lancez une analyse pour alimenter la console.")
