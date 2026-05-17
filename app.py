@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import time
 from google import genai
 
 # Configuration de la page avec thème sombre natif forcé via le design
@@ -116,6 +117,7 @@ def get_official_youtube_details(v_id, yt_key):
     except: pass
     return None
 
+# Fonction d'extraction robuste avec gestion du cycle de vie de l'API (Asynchrone / Polling)
 def get_transcript_from_1min(url, api_key):
     api_url = "https://api.1min.ai/api/features" 
     headers = {"API-KEY": api_key, "Content-Type": "application/json"}
@@ -125,20 +127,40 @@ def get_transcript_from_1min(url, api_key):
         "conversationId": "YOUTUBE_TRANSCRIBER",
         "promptObject": {"videoUrl": url}
     }
+    
     try:
+        # 1. Lancement ou récupération de la tâche
         response = requests.post(api_url, json=payload, headers=headers)
-        if response.status_code in [200, 201]:
-            data = response.json()
+        if response.status_code not in [200, 201]:
+            return None
+            
+        data = response.json()
+        
+        # 2. Boucle de vérification (jusqu'à 15 tentatives, soit 45 secondes max)
+        for attempt in range(15):
             if isinstance(data, dict):
-                if "aiRecordDetail" in data and isinstance(data["aiRecordDetail"], dict):
-                    prompt_obj = data["aiRecordDetail"].get("promptObject", {})
-                    if isinstance(prompt_obj, dict) and "prompt" in prompt_obj:
-                        raw_text = prompt_obj["prompt"]
-                        if "xml data for reference:" in raw_text.lower():
-                            return raw_text.split("```xml")[-1].replace("```", "").strip()
-                        return raw_text
-                if "resultObject" in data and isinstance(data["resultObject"], list) and len(data["resultObject"]) > 0:
-                    return data["resultObject"][0]
+                # Si le statut est SUCCESS, on extrait et on sort immédiatement
+                if data.get("aiRecord", {}).get("status") == "SUCCESS" or "resultObject" in data:
+                    if "aiRecordDetail" in data and isinstance(data["aiRecordDetail"], dict):
+                        prompt_obj = data["aiRecordDetail"].get("promptObject", {})
+                        if isinstance(prompt_obj, dict) and "prompt" in prompt_obj:
+                            raw_text = prompt_obj["prompt"]
+                            if "xml data for reference:" in raw_text.lower():
+                                return raw_text.split("```xml")[-1].replace("```", "").strip()
+                            return raw_text
+                    
+                    if "resultObject" in data and isinstance(data["resultObject"], list) and len(data["resultObject"]) > 0:
+                        return data["resultObject"][0]
+                
+                # Si c'est encore en cours de traitement (PROCESSING ou PENDING)
+                # On attend 3 secondes et on relance exactement la même requête pour rafraîchir le statut
+                time.sleep(3)
+                refresh_res = requests.post(api_url, json=payload, headers=headers)
+                if refresh_res.status_code in [200, 201]:
+                    data = refresh_res.json()
+            else:
+                break
+                
     except: pass
     return None
 
@@ -172,21 +194,20 @@ if st.button("Lancer l'analyse complète", type="primary"):
         if not video_id:
             st.error("ID Vidéo introuvable.")
         else:
-            # Récupération des clés
             yt_key = st.secrets.get("YOUTUBE_API_KEY", "")
             onemin_key = st.secrets.get("ONEMIN_API_KEY", "")
             gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 
-            with st.spinner("Étape 1/2 : Extraction du texte via 1min.ai..."):
+            # Message d'attente dynamique et rassurant
+            with st.spinner("Extraction de la transcription via 1min.ai (Cette étape peut prendre jusqu'à 30 secondes pour les nouvelles vidéos)..."):
                 transcript_text = get_transcript_from_1min(video_url, onemin_key)
             
             if not transcript_text:
-                st.error("Erreur : 1min.ai n'a pas pu extraire le texte. Vérifiez votre clé ou vos crédits.")
+                st.error("Erreur : 1min.ai met trop de temps à répondre ou vos crédits sont épuisés. Réessayez dans un instant.")
             else:
-                with st.spinner("Étape 2/2 : Récupération des métadonnées YouTube..."):
+                with st.spinner("Récupération des métadonnées YouTube..."):
                     details = get_official_youtube_details(video_id, yt_key)
                 
-                # Gestion du Fallback si l'API YouTube officielle échoue
                 if not details:
                     st.info("ℹ️ Note : Métadonnées YouTube indisponibles (Quota épuisé ou clé absente). Gemini va les déduire du contenu.")
                     meta_prompt_part = f"""
