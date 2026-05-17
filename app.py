@@ -1,13 +1,12 @@
 import streamlit as st
 import requests
-import time
 from google import genai
 
 # Configuration de la page Streamlit
 st.set_page_config(page_title="YouTube Video Summarizer", page_icon="📊", layout="wide")
 
 st.title("📊 Analyseur & Extracteur de Contenu YouTube (via 1min.ai)")
-st.write("Cette version utilise l'API officielle de 1min.ai pour extraire le texte, puis Gemini pour structurer le rapport.")
+st.write("Générez une analyse enrichie et exportable d'une vidéo YouTube sans aucun blocage.")
 
 # Sidebar pour les clés API
 with st.sidebar:
@@ -20,45 +19,34 @@ with st.sidebar:
 # Champ de saisie
 video_url = st.text_input("Entrez l'URL de la vidéo YouTube :", placeholder="https://www.youtube.com/watch?v=...")
 
-# Fonction officielle adaptée à la documentation 1min.ai
+# Fonction officielle de transcription via 1min.ai
 def get_transcript_from_1min(url, api_key):
-    # Route unique de l'API Feature de 1min.ai
     api_url = "https://api.1min.ai/api/features" 
-    
-    # Headers obligatoires selon leur doc
     headers = {
         "API-KEY": api_key,
         "Content-Type": "application/json"
     }
-    
-    # Payload strict demandé par le module YOUTUBE_TRANSCRIBER
     payload = {
         "type": "YOUTUBE_TRANSCRIBER",
-        "model": "gpt-4o",  # Modèle d'extraction par défaut de leur côté
+        "model": "gpt-4o",
         "conversationId": "YOUTUBE_TRANSCRIBER",
         "promptObject": {
             "videoUrl": url
         }
     }
-    
     try:
         response = requests.post(api_url, json=payload, headers=headers)
-        
         if response.status_code in [200, 201]:
             data = response.json()
-            
-            # 1min.ai renvoie souvent un statut immédiat ou le résultat direct dans une clé text/result
             if isinstance(data, dict):
-                # Extraction du texte selon la structure de leur réponse
                 transcript = data.get("result") or data.get("text") or data.get("transcript")
                 if transcript:
                     return transcript
-                # Si imbriqué dans un sous-objet 'data'
                 if "data" in data and isinstance(data["data"], dict):
                     return data["data"].get("result") or data["data"].get("text")
             return str(data)
         else:
-            st.error(f"Erreur de l'API 1min.ai (Code {response.status_code}) : {response.text}")
+            st.error(f"Erreur de l'API 1min.ai (Code {response.status_code})")
     except Exception as e:
         st.error(f"Erreur technique lors de l'appel : {str(e)}")
     return None
@@ -75,14 +63,20 @@ if st.button("Analyser la vidéo", type="primary"):
         if not transcript_text:
             st.error("Impossible de récupérer la transcription de la vidéo via 1min.ai.")
         else:
-            st.success("🎯 Transcription récupérée avec succès par 1min.ai ! Génération du rapport par Gemini...")
+            st.success("🎯 Transcription récupérée ! Génération du rapport enrichi par Gemini...")
             
             try:
                 client = genai.Client(api_key=gemini_key)
                 
+                # Prompt ultra-précis configuré selon vos exigences
                 prompt_text = f"""
-                Agis comme un analyste expert. Analyse attentivement la transcription textuelle de la vidéo YouTube fournie ci-dessous et rédige un rapport structuré en français.
-                Respecte SCRUPULEUSEMENT le plan suivant :
+                Agis comme un analyste expert. Analyse attentivement la transcription textuelle fournie et rédige un rapport d'analyse structuré en français.
+                Tu dois obligatoirement déduire le titre, le nom de la chaîne et la date de publication d'après les indices contextuels du texte.
+
+                Informations de contexte :
+                - URL source demandée : {video_url}
+
+                Respecte SCRUPULEUSEMENT le plan et le formatage suivant :
 
                 ## 📝 Résumé rapide
                 *(Rédige ici un résumé très condensé en 2 ou 3 phrases maximum, obligatoirement en italique)*
@@ -90,17 +84,16 @@ if st.button("Analyser la vidéo", type="primary"):
                 ---
 
                 ## ℹ️ Informations
-                - **Titre :** (Déduis le titre exact ou probable de la vidéo d'après le contexte)
-                - **Chaîne :** (Identifie l'orateur ou la chaîne d'après le texte)
-                - **Date :** (La date ou l'époque estimée d'après les propos)
-                - **Durée :** (Estime la durée ou indique "Non calculé")
+                - **Titre :** (Analyse le texte et déduis le titre exact ou le sujet principal le plus probable)
+                - **Chaîne :** (Identifie précisément le nom du créateur, de l'intervenant ou de la chaîne de publication)
+                - **URL :** {video_url}
+                - **Date :** (Déduis la date de publication, l'année ou l'époque d'après les propos tenus)
                 - **Langue :** Français
-                - **Vues :** Non extrait
 
                 ---
 
                 ## 📖 Résumé détaillé
-                (Rédige une analyse en profondeur de la vidéo, structurée en plusieurs paragraphes clairs et détaillés)
+                (Rédige une analyse en profondeur de la vidéo, structurée en plusieurs paragraphes clairs, denses et détaillés)
 
                 ---
 
@@ -115,10 +108,12 @@ if st.button("Analyser la vidéo", type="primary"):
                 ---
 
                 ## 📌 Références citées
-                - **📚 Livres :** (Liste des livres, ouvrages ou documents cités d'après la transcription. Si aucun, écris "Aucun livre mentionné")
-                - **👤 Personnalités :** (Liste des personnes, auteurs, experts ou figures historiques cités. Si aucune, écris "Aucune personnalité mentionnée")
+                - **📚 Livres :** (Liste des livres, rapports, œuvres ou documents cités d'après la transcription. Si aucun, écris "Aucun livre mentionné")
+                - **👤 Personnalités :** (Pour chaque personne, expert, auteur ou figure historique cité dans le texte, applique STRICTEMENT ce format : 
+                * **Nom de la personne** : Brève description de qui elle est, son rôle et sa pertinence par rapport au sujet traité.
+                Si aucune personnalité n'est citée, écris "Aucune personnalité mentionnée".)
 
-                Voici le contenu de la vidéo extrait par 1min.ai à analyser :
+                Voici la transcription brute à analyser :
                 {transcript_text}
                 """
                 
@@ -128,9 +123,23 @@ if st.button("Analyser la vidéo", type="primary"):
                         contents=prompt_text
                     )
                 
-                st.markdown("---")
-                st.subheader("🎬 Rapport d'Analyse Vidéo")
-                st.markdown(response.text)
-                    
+                # Stockage du résultat dans la session Streamlit pour permettre la copie
+                st.session_state['report_result'] = response.text
+                
             except Exception as e:
                 st.error(f"Erreur lors de la génération par l'IA : {str(e)}")
+
+# Affichage des résultats s'ils existent dans la session
+if 'report_result' in st.session_state:
+    st.markdown("---")
+    st.subheader("🎬 Rapport d'Analyse Vidéo")
+    
+    # Zone de rendu visuel propre pour la lecture
+    st.markdown(st.session_state['report_result'])
+    
+    st.markdown("---")
+    st.subheader("📋 Zone d'exportation rapide")
+    st.write("Cliquez sur l'icône de copie en haut à droite du bloc ci-dessous pour ajouter le rapport dans votre presse-papiers et le coller dans votre application (XTile, Obsidian, etc.) :")
+    
+    # Utilisation d'un bloc de code Streamlit avec bouton de copie natif en 1 clic
+    st.code(st.session_state['report_result'], language="markdown")
