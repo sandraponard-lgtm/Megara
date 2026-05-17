@@ -80,7 +80,7 @@ def get_official_youtube_details(v_id, yt_key):
         pass
     return None
 
-# Extraction de la transcription via 1min.ai
+# Extraction de la transcription via 1min.ai (Version Diagnostic)
 def get_transcript_from_1min(url, api_key):
     api_url = "https://api.1min.ai/api/features" 
     headers = {
@@ -95,16 +95,27 @@ def get_transcript_from_1min(url, api_key):
     }
     try:
         response = requests.post(api_url, json=payload, headers=headers)
-        if response.status_code in [200, 201]:
+        
+        # ZONE DE DIAGNOSTIC - S'affichera directement dans l'application
+        st.subheader("🔍 Analyse de l'échec 1min.ai")
+        st.write(f"Code HTTP reçu : {response.status_code}")
+        try:
+            st.json(response.json()) # On affiche le JSON brut renvoyé par 1min.ai
             data = response.json()
+        except:
+            st.text(f"Réponse brute (Non-JSON) : {response.text}")
+            return None
+
+        if response.status_code in [200, 201]:
             if isinstance(data, dict):
                 transcript = data.get("result") or data.get("text") or data.get("transcript")
                 if transcript: return transcript
                 if "data" in data and isinstance(data["data"], dict):
                     return data["data"].get("result") or data["data"].get("text")
-    except:
-        pass
+    except Exception as e:
+        st.error(f"Erreur d'exécution de la requête : {str(e)}")
     return None
+
 
 if st.button("Lancer l'analyse complète", type="primary"):
     if not video_url:
