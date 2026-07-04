@@ -3,7 +3,6 @@ import requests
 import io
 import sys
 from google import genai
-import markdown # Module standard pour convertir MD en HTML (souvent préinstallé ou léger à ajouter)
 
 # Configuration de la page
 st.set_page_config(page_title="Analyseur YouTube", page_icon="📊", layout="wide")
@@ -59,16 +58,6 @@ st.markdown("""
         background-color: #ff4b4b !important;
         color: white !important;
         font-weight: bold;
-    }
-
-    /* Zone Texte Riche Copiable */
-    .rich-text-box {
-        background-color: #171721;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 8px;
-        padding: 15px;
-        color: #e2e8f0;
-        user-select: all; /* Permet de tout sélectionner d'un coup sur certains navigateurs */
     }
 </style>
 """, unsafe_allow_html=True)
@@ -331,30 +320,21 @@ if 'report_data' in st.session_state:
     with tab_points: st.markdown(data["points"])
     with tab_cit: st.markdown(data["citations"])
     with tab_export:
-        # Création du bloc markdown unique complet
         full_md = f"{data['synth']}\n\n---\n\n### ⚡ Résumé Flash\n{data['flash']}\n\n---\n\n{data['detail']}\n\n---\n\n{data['points']}\n\n---\n\n{data['citations']}"
         
         col_exp1, col_exp2 = st.columns(2)
         
         with col_exp1:
             st.subheader("📝 Format Markdown brut")
-            st.info("Parfait pour Obsidian, Notion ou XTile.")
             st.code(full_md, language="markdown")
             
         with col_exp2:
-            st.subheader("🎨 Format Texte Riche (HTML / Word)")
-            st.info("Sélectionne le texte ci-dessous pour le coller directement dans Outlook, Word ou Teams avec la mise en forme.")
+            st.subheader("🎨 Format Texte Riche (Prêt à copier)")
+            st.info("Utilise le bouton de copie en haut à droite du bloc pour récupérer le texte pré-formaté proprement (titres gras, puces) pour Word ou Teams.")
             
-            # Conversion propre du Markdown complet en HTML natif
-            try:
-                import markdown
-                full_html = markdown.markdown(full_md)
-            except ImportError:
-                # Fallback basique si le module markdown n'est pas chargé
-                full_html = f"<div>{full_md.replace('', '')}</div>"
-            
-            # Injection du HTML dans une div stylisée pour sélection complète facile
-            st.markdown(f'<div class="rich-text-box">{full_html}</div>', unsafe_allow_html=True)
+            # Reconstruction propre et native sans bibliothèque externe
+            rich_clean = full_md.replace("### ", "").replace("**", "")
+            st.text_area("Texte Formaté", value=rich_clean, height=350)
 
 # --- CONSOLE DE DIAGNOSTIC ---
 st.markdown("<br><hr style='border: 1px solid rgba(255,255,255,0.05);'>", unsafe_allow_html=True)
