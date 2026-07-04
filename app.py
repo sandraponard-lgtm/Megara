@@ -61,15 +61,15 @@ st.markdown("""
         font-weight: bold;
     }
     
-    /* Zone de prévisualisation du Texte Riche Réel */
+    /* Zone de rendu final propre */
     .preview-box-clean {
         background-color: #171721;
-        border: 2px dashed #a78bfa;
+        border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 12px;
         padding: 20px;
         margin-top: 10px;
         color: #e2e8f0;
-        font-family: 'Inter', sans-serif;
+        font-family: system-ui, -apple-system, sans-serif;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -94,18 +94,11 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- INITIALISATION DES LOGS ---
-if "debug_logs" not in st.session_state:
-    st.session_state["debug_logs"] = []
-
-def add_log(message):
-    st.session_state["debug_logs"].append(message)
-
-# --- NETTOYAGE STRICT ET CONVERSION EN HTML PROPRE DIRECT ---
+# --- CONVERTISSEUR LIGHT MARKDOWN -> HTML PROPRE (SANS BALISES IA) ---
 def md_to_clean_html(text):
     if not text: return ""
     
-    # Suppression complète des balises techniques [SECTION] de l'IA
+    # Nettoyage des marqueurs de structure générés par l'IA
     text = re.sub(r'^\[SECTION\s*\d+\s*:.*?\]\s*\n?', '', text, flags=re.IGNORECASE | re.MULTILINE)
     text = re.sub(r'\[SECTION.*?\]', '', text, flags=re.IGNORECASE)
     text = re.sub(r'#+\s*.*?(Synthèse|Résumé Flash|Analyse détaillée|Points clés|Citations).*?\n', '', text, flags=re.IGNORECASE)
@@ -127,7 +120,7 @@ def md_to_clean_html(text):
                 html_output.append("</ul>")
                 in_list = False
             title_text = line_str.lstrip('#').strip()
-            html_output.append(f"<h3 style='color: #c084fc; margin-top: 18px; margin-bottom: 6px; font-size:1.15rem;'>{title_text}</h3>")
+            html_output.append(f"<h3 style='color: #c084fc; margin-top: 16px; margin-bottom: 6px; font-size:1.15rem;'>{title_text}</h3>")
             continue
             
         if line_str.startswith('- ') or line_str.startswith('* ') or line_str.startswith('• '):
@@ -151,25 +144,6 @@ def md_to_clean_html(text):
         html_output.append("</ul>")
         
     return "".join(html_output)
-
-# --- PASSERELLE INTEGRATION PCLOUD ---
-def save_to_pcloud(filename, content):
-    base_url = st.secrets.get("PCLOUD_ENDPOINT", "https://eapi.pcloud.com")
-    username = st.secrets.get("PCLOUD_USERNAME", "")
-    password = st.secrets.get("PCLOUD_PASSWORD", "")
-    
-    if not username or not password:
-        return False
-    try:
-        file_buffer = io.BytesIO(content.encode('utf-8'))
-        file_buffer.name = filename
-        upload_url = f"{base_url}/uploadfile"
-        params = {"username": username, "password": password, "path": "/", "nopartial": 1, "renameifexists": 1}
-        files = {'file': file_buffer}
-        res = requests.post(upload_url, params=params, files=files)
-        return res.status_code == 200 and res.json().get("result") == 0
-    except:
-        return False
 
 # --- LOGIQUE DE PARSING ---
 def extract_id(url):
@@ -255,12 +229,12 @@ if trigger_analyse:
             except Exception as e:
                 st.error(f"Erreur : {str(e)}")
 
-# --- RENDU ET ZONE DE COPIE SANS CODE ---
+# --- VISUALISATION ET ACTION DE COPIE UNIQUE SANS CODE EXTÉRIEUR ---
 if 'report_data' in st.session_state:
     data = st.session_state['report_data']
     
     tab_synth, tab_flash, tab_detail, tab_points, tab_cit, tab_export = st.tabs([
-        "📊 Synthèse", "⚡ Résumé Flash", "📖 Analyse détaillée", "💡 Points clés", "💬 Citations", "📋 Copie & Rendu Final"
+        "📊 Synthèse", "⚡ Résumé Flash", "📖 Analyse détaillée", "💡 Points clés", "💬 Citations", "📋 Copie en Un Clic"
     ])
     
     with tab_synth: st.markdown(data["synth"])
@@ -270,23 +244,71 @@ if 'report_data' in st.session_state:
     with tab_cit: st.markdown(data["citations"])
     
     with tab_export:
-        # Transformation propre des sections en HTML lisible (sans les chaînes brutes de code)
+        # Conversion invisible
         html_synth = md_to_clean_html(data['synth'])
         html_flash = md_to_clean_html(data['flash'])
         html_detail = md_to_clean_html(data['detail'])
         html_points = md_to_clean_html(data['points'])
         html_citations = md_to_clean_html(data['citations'])
         
+        # Structure HTML propre pour le presse-papiers
         final_rich_html = (
-            f"<h2 style='color: #a78bfa; margin-top:0;'>📊 SYNTHÈSE</h2>{html_synth}<br><hr style='border:0; border-top:1px solid rgba(255,255,255,0.1);'><br>"
-            f"<h2 style='color: #a78bfa;'>⚡ RÉSUMÉ FLASH</h2>{html_flash}<br><hr style='border:0; border-top:1px solid rgba(255,255,255,0.1);'><br>"
-            f"<h2 style='color: #a78bfa;'>📖 ANALYSE DÉTAILLÉE</h2>{html_detail}<br><hr style='border:0; border-top:1px solid rgba(255,255,255,0.1);'><br>"
-            f"<h2 style='color: #a78bfa;'>💡 POINTS CLÉS & CHIFFRES</h2>{html_points}<br><hr style='border:0; border-top:1px solid rgba(255,255,255,0.1);'><br>"
-            f"<h2 style='color: #a78bfa;'>💬 CITATIONS & RÉFÉRENCES</h2>{html_citations}"
+            f"<h2>📊 SYNTHÈSE</h2>{html_synth}<br><br>"
+            f"<h2>⚡ RÉSUMÉ FLASH</h2>{html_flash}<br><br>"
+            f"<h2>📖 ANALYSE DÉTAILLÉE</h2>{html_detail}<br><br>"
+            f"<h2>💡 POINTS CLÉS & CHIFFRES</h2>{html_points}<br><br>"
+            f"<h2>💬 CITATIONS & RÉFÉRENCES</h2>{html_citations}"
         )
         
-        st.subheader("📋 Rendu Texte Riche Prêt à Copier")
-        st.info("📱 Pour copier sur ton téléphone : Fais un appui long n'importe où dans l'encadré violet ci-dessous, puis étends la sélection pour tout prendre. C'est du vrai texte riche, aucun code HTML n'apparaîtra au collage !")
+        st.subheader("📋 Presse-papiers intelligent")
+        st.info("📱 Clique sur le bouton rouge. Tout le document sera mis en mémoire avec ses styles (Titres, listes). Tu n'as plus qu'à aller le coller directement dans Teams, Word ou ton application de notes.")
         
-        # ICI : Utilisation de st.markdown(..., unsafe_allow_html=True) pour afficher le RENDU DIRECT, sans voir le code !
+        # Encodage JS sécurisé pour éliminer l'affichage des balises brutes à l'écran
+        escaped_html = final_rich_html.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"').replace("\n", " ")
+        
+        js_copier_code = f"""
+        <div style="text-align: center; margin-bottom: 15px;">
+            <button onclick="copyToClipboard()" style="
+                background-color: #ff4b4b;
+                color: white;
+                border: none;
+                padding: 14px 28px;
+                font-weight: bold;
+                font-size: 1.05rem;
+                border-radius: 8px;
+                cursor: pointer;
+                width: 100%;
+                box-shadow: 0px 4px 12px rgba(255, 75, 75, 0.3);
+            ">📋 COPIER LE RAPPORT EN TEXTE RICHE</button>
+        </div>
+
+        <script>
+        function copyToClipboard() {{
+            const htmlData = "{escaped_html}";
+            const blobHtml = new Blob([htmlData], {{ type: 'text/html' }});
+            
+            // Extraction du texte brut pour fallback universel
+            const div = document.createElement('div');
+            div.innerHTML = htmlData;
+            const plainText = div.textContent || div.innerText || "";
+            const blobText = new Blob([plainText], {{ type: 'text/plain' }});
+            
+            const item = new ClipboardItem({{
+                'text/html': blobHtml,
+                'text/plain': blobText
+            }});
+            
+            navigator.clipboard.write([item]).then(() => {{
+                alert('✅ Rapport copié avec succès en texte riche !');
+            }}).catch(err => {{
+                alert('❌ Erreur de copie automatique. Utilise la sélection manuelle ci-dessous.');
+            }});
+        }}
+        </script>
+        """
+        # Injection du composant bouton invisible/interactif
+        st.components.v1.html(js_copier_code, height=65)
+        
+        # Zone d'aperçu de ce qui a été copié (Interprété, propre, sans balises HTML visibles)
+        st.markdown("**🔍 Aperçu visuel de ton texte formaté après le collage :**")
         st.markdown(f'<div class="preview-box-clean">{final_rich_html}</div>', unsafe_allow_html=True)
