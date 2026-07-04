@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import io
 import sys
 from google import genai
 
@@ -15,7 +16,7 @@ st.markdown("""
         color: #e2e8f0;
     }
     
-    /* En-tête ultra-compact (marge réduite au maximum pour mobile) */
+    /* En-tête ultra-compact */
     .main-title {
         font-family: 'Inter', sans-serif;
         font-weight: 800;
@@ -36,7 +37,7 @@ st.markdown("""
         margin-bottom: 1rem;
     }
 
-    /* Forcer l'alignement horizontal de l'input et du bouton sur la même ligne */
+    /* Forcer l'alignement horizontal de l'input et du bouton */
     [data-testid="stHorizontalBlock"] {
         align-items: flex-end !important;
     }
@@ -88,13 +89,50 @@ if "debug_logs" not in st.session_state:
 def add_log(message):
     st.session_state["debug_logs"].append(message)
 
-# --- LOGIQUE TECHNIQUE (PASSAGE UNIQUE SÉCURISÉ) ---
+# --- PASSERELLE INTEGRATION PCLOUD ---
+def save_to_pcloud(filename, content):
+    base_url = st.secrets.get("PCLOUD_ENDPOINT", "https://eapi.pcloud.com")
+    username = st.secrets.get("PCLOUD_USERNAME", "")
+    password = st.secrets.get("PCLOUD_PASSWORD", "")
+    
+    if not username or not password:
+        add_log("⚠️ Configuration pCloud manquante dans les secrets.")
+        return False
+        
+    try:
+        file_buffer = io.BytesIO(content.encode('utf-8'))
+        file_buffer.name = filename
+        
+        upload_url = f"{base_url}/uploadfile"
+        params = {
+            "username": username,
+            "password": password,
+            "path": "/",
+            "nopartial": 1,
+            "renameifexists": 1
+        }
+        
+        files = {'file': file_buffer}
+        res = requests.post(upload_url, params=params, files=files)
+        
+        if res.status_code == 200 and res.json().get("result") == 0:
+            add_log(f"💾 Historisation réussie sur pCloud : {filename}")
+            return True
+        else:
+            add_log(f"❌ Échec de sauvegarde pCloud : {res.text}")
+    except Exception as e:
+        add_log(f"❌ Erreur critique lors de la liaison pCloud : {str(e)}")
+    return False
+
+# --- LOGIQUE DE PARSING ---
 def extract_id(url):
+    if not url: return "texte_manuel"
     if "youtu.be/" in url: return url.split("youtu.be/")[1].split("?")[0]
     elif "watch?v=" in url: return url.split("watch?v=")[1].split("&")[0]
-    return None
+    return "texte_manuel"
 
 def get_official_youtube_details(v_id, yt_key):
+    if v_id == "texte_manuel": return None
     url = f"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id={v_id}&key={yt_key}"
     try:
         res = requests.get(url).json()
@@ -130,35 +168,28 @@ def get_transcript_from_1min(url, api_key):
             data = response.json()
             add_log(f"📄 1min.ai JSON (extrait) : {str(data)[:600]}...")
             
-            # Niveau 1 : Racine du JSON
             if "resultObject" in data and data["resultObject"]:
-                if isinstance(data["resultObject"], list) and len(data["resultObject"]) > 0:
-                    return data["resultObject"][0]
+                if isinstance(data["resultObject"], list) and len(data["resultObject"]) > 0: return data["resultObject"][0]
                 return str(data["resultObject"])
 
-            # Niveau 2 : aiRecordDetail
             record_detail = data.get("aiRecordDetail", {})
             if isinstance(record_detail, dict):
                 prompt_obj = record_detail.get("promptObject", {})
                 if isinstance(prompt_obj, dict) and "prompt" in prompt_obj:
                     raw_text = prompt_obj["prompt"]
-                    if "xml data for reference:" in raw_text.lower():
-                        return raw_text.split("```xml")[-1].replace("```", "").strip()
+                    if "xml data for reference:" in raw_text.lower(): return raw_text.split("```xml")[-1].replace("```", "").strip()
                     return raw_text
 
-            # Niveau 3 : Structure imbriquée dans aiRecord
             ai_record = data.get("aiRecord", {})
             if isinstance(ai_record, dict):
                 inner_detail = ai_record.get("aiRecordDetail", {}) or ai_record
                 if isinstance(inner_detail, dict):
                     p_obj = inner_detail.get("promptObject", {})
-                    if isinstance(p_obj, dict) and "prompt" in p_obj:
-                        return p_obj["prompt"]
+                    if isinstance(p_obj, dict) and "prompt" in p_obj: return p_obj["prompt"]
                     if "resultObject" in inner_detail:
                         res_obj = inner_detail["resultObject"]
                         if isinstance(res_obj, list) and len(res_obj) > 0: return res_obj[0]
                         return str(res_obj)
-
             add_log("⚠️ Parseur : Donnée introuvable dans la structure JSON.")
     except Exception as e:
         add_log(f"❌ 1min.ai Erreur critique : {str(e)}")
@@ -177,88 +208,110 @@ with col_url:
 with col_btn:
     trigger_analyse = st.button("Analyser", type="primary", use_container_width=True)
 
+# Zone pliable pour coller directement du texte (optionnel)
+with st.expander("📝 Option : Coller directement une transcription brute", expanded=False):
+    manual_transcript = st.text_area("Colle ton texte ou ta transcription ici (si rempli, l'URL ci-dessus sera ignorée pour l'extraction)", height=150, placeholder="Copie ton texte ici...")
+
 # Traitement de l'analyse au clic
 if trigger_analyse:
-    if not video_url:
-        st.warning("Veuillez entrer une URL.")
+    # 1. Validation de la source
+    if not video_url and not manual_transcript.strip():
+        st.warning("Veuillez entrer une URL ou coller une transcription.")
     else:
         st.session_state["debug_logs"] = [] # Reset logs
-        add_log(f"🚀 Lancement de l'analyse : {video_url}")
-        
         video_id = extract_id(video_url)
-        if not video_id:
-            st.error("ID Vidéo YouTube introuvable dans l'URL.")
+        
+        yt_key = st.secrets.get("YOUTUBE_API_KEY", "")
+        onemin_key = st.secrets.get("ONEMIN_API_KEY", "")
+        gemini_key = st.secrets.get("GEMINI_API_KEY", "")
+        
+        transcript_text = None
+        
+        # 2. Récupération de la transcription (Manuelle VS API)
+        if manual_transcript.strip():
+            add_log("📝 Source : Utilisation de la transcription collée manuellement.")
+            transcript_text = manual_transcript.strip()
         else:
-            yt_key = st.secrets.get("YOUTUBE_API_KEY", "")
-            onemin_key = st.secrets.get("ONEMIN_API_KEY", "")
-            gemini_key = st.secrets.get("GEMINI_API_KEY", "")
-
-            with st.spinner("Transcription (1min.ai)..."):
-                transcript_text = get_transcript_from_1min(video_url, onemin_key)
-            
-            if not transcript_text:
-                st.error("Impossible de récupérer la transcription. Vérifie la console de diagnostic.")
+            if video_id == "texte_manuel":
+                st.error("ID Vidéo YouTube introuvable dans l'URL.")
             else:
-                with st.spinner("Métadonnées (YouTube)..."):
-                    details = get_official_youtube_details(video_id, yt_key)
+                add_log(f"🚀 Source : Lancement de l'analyse via l'URL {video_url}")
+                with st.spinner("Transcription (1min.ai)..."):
+                    transcript_text = get_transcript_from_1min(video_url, onemin_key)
+        
+        # 3. Traitement par Gemini si le texte est présent
+        if not transcript_text:
+            st.error("Impossible d'obtenir un texte à analyser. Vérifie la console de diagnostic.")
+        else:
+            # Récupération des métadonnées (seulement si on utilise une URL valide)
+            details = get_official_youtube_details(video_id, yt_key) if video_id != "texte_manuel" else None
+            
+            title_clean = details['title'] if details else "Analyse_Manuelle"
+            if details:
+                meta_prompt_part = f"- **Titre :** {details['title']}\n- **Chaîne :** {details['channel']}\n- **URL :** {video_url}\n- **Date :** {details['date']}\n- **Durée :** {details['duration']}\n- **Vues :** {int(details['views']):,} vues"
+            else:
+                meta_prompt_part = f"- **Titre :** (Déduis le titre d'après le texte)\n- **Chaîne :** (Déduis le locuteur principal)\n- **URL :** {video_url if video_url else 'Saisie manuelle'}\n- **Date :** Inconnue"
+
+            try:
+                client = genai.Client(api_key=gemini_key)
                 
-                if not details:
-                    meta_prompt_part = f"- **Titre :** (Déduis-le)\n- **Chaîne :** (Déduis-la)\n- **URL :** {video_url}\n- **Date :** Inconnue"
-                else:
-                    meta_prompt_part = f"- **Titre :** {details['title']}\n- **Chaîne :** {details['channel']}\n- **URL :** {video_url}\n- **Date :** {details['date']}\n- **Durée :** {details['duration']}\n- **Vues :** {int(details['views']):,} vues"
+                prompt_text = f"""
+                Analyse la transcription de cette vidéo YouTube et génère des blocs de données structurés en français selon les instructions exactes suivantes.
+                Ne mets aucun blabla d'introduction ou de conclusion. Sépare STRICTEMENT chaque grande section par la chaîne de caractères "===SECTION_SEPARATOR===".
 
-                try:
-                    client = genai.Client(api_key=gemini_key)
-                    
-                    prompt_text = f"""
-                    Analyse la transcription de cette vidéo YouTube et génère des blocs de données structurés en français selon les instructions exactes suivantes.
-                    Ne mets aucun blabla d'introduction ou de conclusion. Sépare STRICTEMENT chaque grande section par la chaîne de caractères "===SECTION_SEPARATOR===".
+                [SECTION 1: SYNTHESE]
+                Rédige un résumé rapide en 2 ou 3 phrases maximum, obligatoirement en italique.
+                Ajoute ensuite les métadonnées exactement sous cette forme de liste :
+                {meta_prompt_part}
 
-                    [SECTION 1: SYNTHESE]
-                    Rédige un résumé rapide en 2 ou 3 phrases maximum, obligatoirement en italique.
-                    Ajoute ensuite les métadonnées exactement sous cette forme de liste :
-                    {meta_prompt_part}
+                ===SECTION_SEPARATOR===
 
-                    ===SECTION_SEPARATOR===
+                [SECTION 2: DETAIL]
+                Rédige un résumé en profondeur de la vidéo, structurée en plusieurs paragraphes clairs, denses et très détaillés.
 
-                    [SECTION 2: DETAIL]
-                    Rédige un résumé en profondeur de la vidéo, structurée en plusieurs paragraphes clairs, denses et très détaillés.
+                ===SECTION_SEPARATOR===
 
-                    ===SECTION_SEPARATOR===
+                [SECTION 3: POINTS_CLES]
+                Génère une liste numérotée des concepts essentiels développés.
+                Ensuite, crée une sous-section nommée "### 🔢 Chiffres clés par Thématiques". Regroupe obligatoirement TOUTES les statistiques et données chiffrées de la vidéo sous des titres thématiques clairs (ex: ### Économie, ### Données démographiques, etc.).
 
-                    [SECTION 3: POINTS_CLES]
-                    Génère une liste numérotée des concepts essentiels développés.
-                    Ensuite, crée une sous-section nommée "### 🔢 Chiffres clés par Thématiques". Regroupe obligatoirement TOUTES les statistiques et données chiffrées de la vidéo sous des titres thématiques clairs (ex: ### Économie, ### Données démographiques, etc.).
+                ===SECTION_SEPARATOR===
 
-                    ===SECTION_SEPARATOR===
+                [SECTION 4: CITATIONS_REFERENCES]
+                Crée une rubrique "### 💬 Citations fortes". Extrais au moins 3 à 5 citations textuelles marquantes ou phrases clés dites dans la vidéo. Pour chaque citation, ajoute obligatoirement entre parenthèses juste après une explication du contexte ou de ce qu'elle implique. Formate ainsi : "« Citation » *(Contexte explicatif)*".
+                Ajoute ensuite la liste des Livres et Personnalités (avec brève description de qui ils sont).
 
-                    [SECTION 4: CITATIONS_REFERENCES]
-                    Crée une rubrique "### 💬 Citations fortes". Extrais au moins 3 à 5 citations textuelles marquantes ou phrases clés dites dans la vidéo. Pour chaque citation, ajoute obligatoirement entre parenthèses juste après une explication du contexte ou de ce qu'elle implique. Formate ainsi : "« Citation » *(Contexte explicatif)*".
-                    Ajoute ensuite la liste des Livres et Personnalités (avec brève description de qui ils sont).
-
-                    Transcription :
-                    {transcript_text}
-                    """
-                    
-                    with st.spinner("Génération du rapport (Gemini)..."):
-                        response = client.models.generate_content(
-                            model='gemini-2.5-flash',
-                            contents=prompt_text
-                        )
-                    
-                    sections = response.text.split("===SECTION_SEPARATOR===")
-                    st.session_state['report_data'] = {
-                        "synth": sections[0].strip() if len(sections) > 0 else "",
-                        "detail": sections[1].strip() if len(sections) > 1 else "",
-                        "points": sections[2].strip() if len(sections) > 2 else "",
-                        "citations": sections[3].strip() if len(sections) > 3 else ""
-                    }
-                    add_log("🤖 Rapport complet généré avec succès par Gemini.")
-                    st.rerun()
-                    
-                except Exception as e:
-                    add_log(f"❌ Gemini Erreur : {str(e)}")
-                    st.error(f"Erreur d'analyse IA : {str(e)}")
+                Transcription :
+                {transcript_text}
+                """
+                
+                with st.spinner("Génération du rapport (Gemini)..."):
+                    response = client.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=prompt_text
+                    )
+                
+                sections = response.text.split("===SECTION_SEPARATOR===")
+                
+                st.session_state['report_data'] = {
+                    "synth": sections[0].strip() if len(sections) > 0 else "",
+                    "detail": sections[1].strip() if len(sections) > 1 else "",
+                    "points": sections[2].strip() if len(sections) > 2 else "",
+                    "citations": sections[3].strip() if len(sections) > 3 else ""
+                }
+                
+                # Formatage et envoi automatique sur pCloud
+                full_markdown_content = f"# {title_clean}\n\n## 📊 Synthèse & Métadonnées\n{st.session_state['report_data']['synth']}\n\n---\n\n## 📖 Analyse détaillée\n{st.session_state['report_data']['detail']}\n\n---\n\n## 💡 Points clés & Chiffres\n{st.session_state['report_data']['points']}\n\n---\n\n## 💬 Citations & Références\n{st.session_state['report_data']['citations']}\n"
+                
+                safe_title = "".join([c for c in title_clean if c.isalpha() or c.isdigit() or c==' ']).rstrip()
+                filename = f"YT_{video_id}_{safe_title[:30]}.md".replace(" ", "_")
+                
+                save_to_pcloud(filename, full_markdown_content)
+                st.rerun()
+                
+            except Exception as e:
+                add_log(f"❌ Gemini Erreur : {str(e)}")
+                st.error(f"Erreur d'analyse IA : {str(e)}")
 
 # --- RENDU DE LA NAVIGATION HORIZONTALE ET DES SECTIONS ---
 if 'report_data' in st.session_state:
@@ -268,14 +321,10 @@ if 'report_data' in st.session_state:
         "📊 Synthèse", "📖 Analyse détaillée", "💡 Points clés", "💬 Citations", "📋 Export XTile"
     ])
     
-    with tab_synth:
-        st.markdown(data["synth"])
-    with tab_detail:
-        st.markdown(data["detail"])
-    with tab_points:
-        st.markdown(data["points"])
-    with tab_cit:
-        st.markdown(data["citations"])
+    with tab_synth: st.markdown(data["synth"])
+    with tab_detail: st.markdown(data["detail"])
+    with tab_points: st.markdown(data["points"])
+    with tab_cit: st.markdown(data["citations"])
     with tab_export:
         st.subheader("📋 Rapport complet au format brut")
         full_markdown = f"{data['synth']}\n\n---\n\n{data['detail']}\n\n---\n\n{data['points']}\n\n---\n\n{data['citations']}"
@@ -284,14 +333,8 @@ if 'report_data' in st.session_state:
 # --- CONSOLE DE DIAGNOSTIC ---
 st.markdown("<br><hr style='border: 1px solid rgba(255,255,255,0.05);'>", unsafe_allow_html=True)
 with st.expander("🛠️ Console de Diagnostic technique (Debug)", expanded=False):
-    st.subheader("⚙️ Vérification des Secrets")
-    col_s1, col_s2, col_s3 = st.columns(3)
-    with col_s1: st.metric("GEMINI_API_KEY", "Présente ✅" if "GEMINI_API_KEY" in st.secrets else "Absente ❌")
-    with col_s2: st.metric("ONEMIN_API_KEY", "Présente ✅" if "ONEMIN_API_KEY" in st.secrets else "Absente ❌")
-    with col_s3: st.metric("YOUTUBE_API_KEY", "Présente ✅" if "YOUTUBE_API_KEY" in st.secrets else "Absente ❌")
-        
     st.subheader("📜 Logs d'exécution")
     if st.session_state["debug_logs"]:
         st.code("\n".join(st.session_state["debug_logs"]), language="text")
     else:
-        st.info("Aucun log disponible pour le moment. Lance une analyse.")
+        st.info("Aucun log disponible pour le moment.")
