@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import io
 import sys
+import re
 from google import genai
 
 # Configuration de la page
@@ -88,6 +89,20 @@ if "debug_logs" not in st.session_state:
 
 def add_log(message):
     st.session_state["debug_logs"].append(message)
+
+# --- NETTOYAGE DES BALISES BRUTES ---
+def clean_ai_markdown(text):
+    if not text: return ""
+    # Supprime les lignes du style [SECTION 1: ...] ou [SECTION...]
+    text = re.sub(r'^\[SECTION\s*\d+\s*:.*?\]\s*\n?', '', text, flags=re.IGNORECASE | re.MULTILINE)
+    text = re.sub(r'\[SECTION.*?\]', '', text, flags=re.IGNORECASE)
+    # Remplace les puces astérisques isolées en début de ligne par de vrais tirets propres si nécessaire
+    lines = []
+    for line in text.split('\n'):
+        if line.strip().startswith('* '):
+            line = line.replace('* ', '- ', 1)
+        lines.append(line)
+    return '\n'.join(lines).strip()
 
 # --- PASSERELLE INTEGRATION PCLOUD ---
 def save_to_pcloud(filename, content):
@@ -178,17 +193,6 @@ def get_transcript_from_1min(url, api_key):
                     raw_text = prompt_obj["prompt"]
                     if "xml data for reference:" in raw_text.lower(): return raw_text.split("```xml")[-1].replace("```", "").strip()
                     return raw_text
-
-            ai_record = data.get("aiRecord", {})
-            if isinstance(ai_record, dict):
-                inner_detail = ai_record.get("aiRecordDetail", {}) or ai_record
-                if isinstance(inner_detail, dict):
-                    p_obj = inner_detail.get("promptObject", {})
-                    if isinstance(p_obj, dict) and "prompt" in p_obj: return p_obj["prompt"]
-                    if "resultObject" in inner_detail:
-                        res_obj = inner_detail["resultObject"]
-                        if isinstance(res_obj, list) and len(res_obj) > 0: return res_obj[0]
-                        return str(res_obj)
     except Exception as e:
         add_log(f"❌ 1min.ai Erreur critique : {str(e)}")
     return None
@@ -286,12 +290,13 @@ if trigger_analyse:
                 
                 sections = response.text.split("===SECTION_SEPARATOR===")
                 
+                # Application directe du nettoyage de sécurité sur les données reçues
                 st.session_state['report_data'] = {
-                    "synth": sections[0].strip() if len(sections) > 0 else "",
-                    "flash": sections[1].strip() if len(sections) > 1 else "",
-                    "detail": sections[2].strip() if len(sections) > 2 else "",
-                    "points": sections[3].strip() if len(sections) > 3 else "",
-                    "citations": sections[4].strip() if len(sections) > 4 else ""
+                    "synth": clean_ai_markdown(sections[0]),
+                    "flash": clean_ai_markdown(sections[1]),
+                    "detail": clean_ai_markdown(sections[2]),
+                    "points": clean_ai_markdown(sections[3]),
+                    "citations": clean_ai_markdown(sections[4])
                 }
                 
                 full_markdown_content = f"# {title_clean}\n\n## 📊 Synthèse & Métadonnées\n{st.session_state['report_data']['synth']}\n\n---\n\n## 📋 Résumé Flash\n{st.session_state['report_data']['flash']}\n\n---\n\n## 📖 Analyse détaillée\n{st.session_state['report_data']['detail']}\n\n---\n\n## 💡 Points clés & Chiffres\n{st.session_state['report_data']['points']}\n\n---\n\n## 💬 Citations & Références\n{st.session_state['report_data']['citations']}\n"
@@ -311,7 +316,7 @@ if 'report_data' in st.session_state:
     data = st.session_state['report_data']
     
     tab_synth, tab_flash, tab_detail, tab_points, tab_cit, tab_export = st.tabs([
-        "📊 Synthèse", "⚡ Résumé Flash", "📖 Analyse détaillée", "💡 Points clés", "💬 Citations", "📋 Export & Copie"
+        "📊 Synthèse", "⚡ Résumé Flash", "📖 Analyse détaillée", "💡 Points clés", "💬 Citations", "📋 Bouton Copier & Export"
     ])
     
     with tab_synth: st.markdown(data["synth"])
@@ -320,21 +325,19 @@ if 'report_data' in st.session_state:
     with tab_points: st.markdown(data["points"])
     with tab_cit: st.markdown(data["citations"])
     with tab_export:
-        full_md = f"{data['synth']}\n\n---\n\n### ⚡ Résumé Flash\n{data['flash']}\n\n---\n\n{data['detail']}\n\n---\n\n{data['points']}\n\n---\n\n{data['citations']}"
+        # Fichier d'export Markdown Unique complet et totalement nettoyé
+        full_md = f"### 📊 Synthèse\n{data['synth']}\n\n---\n\n### ⚡ Résumé Flash\n{data['flash']}\n\n---\n\n### 📖 Analyse détaillée\n{data['detail']}\n\n---\n\n### 💡 Points clés\n{data['points']}\n\n---\n\n### 💬 Citations\n{data['citations']}"
         
-        col_exp1, col_exp2 = st.columns(2)
+        st.subheader("📋 Zone de Copie Unique et Rapide (Mobile)")
+        st.info("📱 Appuie simplement sur le bouton de copie en haut à droite du cadre ci-dessous pour tout récupérer instantanément.")
         
-        with col_exp1:
-            st.subheader("📝 Format Markdown brut")
-            st.code(full_md, language="markdown")
-            
-        with col_exp2:
-            st.subheader("🎨 Format Texte Riche (Prêt à copier)")
-            st.info("Utilise le bouton de copie en haut à droite du bloc pour récupérer le texte pré-formaté proprement (titres gras, puces) pour Word ou Teams.")
-            
-            # Reconstruction propre et native sans bibliothèque externe
-            rich_clean = full_md.replace("### ", "").replace("**", "")
-            st.text_area("Texte Formaté", value=rich_clean, height=350)
+        # Le composant st.code génère le conteneur idéal avec son bouton de copie natif parfait pour smartphone
+        st.code(full_md, language="markdown")
+        
+        # Nettoyage additionnel pour la version texte brut (retrait des balises markdown basiques)
+        st.subheader("📝 Version Texte Brut (sans symboles)")
+        plain_text = full_md.replace("**", "").replace("### ", "\n🔹 ").replace("## ", "\n🔸 ").replace("---", "___________________")
+        st.code(plain_text, language="text")
 
 # --- CONSOLE DE DIAGNOSTIC ---
 st.markdown("<br><hr style='border: 1px solid rgba(255,255,255,0.05);'>", unsafe_allow_html=True)
