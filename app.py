@@ -94,7 +94,7 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- CONVERTISSEUR LIGHT MARKDOWN -> HTML PROPRE (SANS BALISES IA) ---
+# --- CONVERTISSEUR LIGHT MARKDOWN -> HTML PROPRE ---
 def md_to_clean_html(text):
     if not text: return ""
     
@@ -111,37 +111,37 @@ def md_to_clean_html(text):
         line_str = line.strip()
         if not line_str:
             if in_list:
-                html_output.append("</ul>")
+                html_output.append("</ul>\n")
                 in_list = False
             continue
             
         if line_str.startswith('#'):
             if in_list:
-                html_output.append("</ul>")
+                html_output.append("</ul>\n")
                 in_list = False
             title_text = line_str.lstrip('#').strip()
-            html_output.append(f"<h3 style='color: #c084fc; margin-top: 16px; margin-bottom: 6px; font-size:1.15rem;'>{title_text}</h3>")
+            html_output.append(f"<h3 style='color: #c084fc; margin-top: 16px; margin-bottom: 6px; font-size:1.15rem;'>{title_text}</h3>\n")
             continue
             
         if line_str.startswith('- ') or line_str.startswith('* ') or line_str.startswith('• '):
             if not in_list:
-                html_output.append("<ul style='margin-top: 4px; margin-bottom: 4px; padding-left: 20px;'>")
+                html_output.append("<ul style='margin-top: 4px; margin-bottom: 4px; padding-left: 20px;'>\n")
                 in_list = True
             bullet_content = re.sub(r'^[-*•]\s*', '', line_str)
             bullet_content = re.sub(r'\*\*(.*?)\*\*|\_\_(.*?)\_\_', r'<b>\1\2</b>', bullet_content)
-            html_output.append(f"<li style='margin-bottom: 4px;'>{bullet_content}</li>")
+            html_output.append(f"<li style='margin-bottom: 4px;'>{bullet_content}</li>\n")
             continue
             
         if in_list:
-            html_output.append("</ul>")
+            html_output.append("</ul>\n")
             in_list = False
             
         line_str = re.sub(r'\*\*(.*?)\*\*|\_\_(.*?)\_\_', r'<b>\1\2</b>', line_str)
         line_str = re.sub(r'\*(.*?)\*|\_(.*?)\_', r'<i>\1\2</i>', line_str)
-        html_output.append(f"<p style='margin-top: 4px; margin-bottom: 4px; line-height: 1.4;'>{line_str}</p>")
+        html_output.append(f"<p style='margin-top: 4px; margin-bottom: 4px; line-height: 1.4;'>{line_str}</p>\n")
         
     if in_list:
-        html_output.append("</ul>")
+        html_output.append("</ul>\n")
         
     return "".join(html_output)
 
@@ -229,7 +229,7 @@ if trigger_analyse:
             except Exception as e:
                 st.error(f"Erreur : {str(e)}")
 
-# --- VISUALISATION ET ACTION DE COPIE UNIQUE SANS CODE EXTÉRIEUR ---
+# --- VISUALISATION ET INTEGRATION PRESSE-PAPIERS ANTI-BLOC ---
 if 'report_data' in st.session_state:
     data = st.session_state['report_data']
     
@@ -244,27 +244,26 @@ if 'report_data' in st.session_state:
     with tab_cit: st.markdown(data["citations"])
     
     with tab_export:
-        # Conversion invisible
         html_synth = md_to_clean_html(data['synth'])
         html_flash = md_to_clean_html(data['flash'])
         html_detail = md_to_clean_html(data['detail'])
         html_points = md_to_clean_html(data['points'])
         html_citations = md_to_clean_html(data['citations'])
         
-        # Structure HTML propre pour le presse-papiers
+        # Structure HTML avec retours à la ligne explicites pour forcer l'espacement au collage
         final_rich_html = (
-            f"<h2>📊 SYNTHÈSE</h2>{html_synth}<br><br>"
-            f"<h2>⚡ RÉSUMÉ FLASH</h2>{html_flash}<br><br>"
-            f"<h2>📖 ANALYSE DÉTAILLÉE</h2>{html_detail}<br><br>"
-            f"<h2>💡 POINTS CLÉS & CHIFFRES</h2>{html_points}<br><br>"
-            f"<h2>💬 CITATIONS & RÉFÉRENCES</h2>{html_citations}"
+            f"<h2>📊 SYNTHÈSE</h2>\n{html_synth}<br>\n\n"
+            f"<h2>⚡ RÉSUMÉ FLASH</h2>\n{html_flash}<br>\n\n"
+            f"<h2>📖 AMALYSÉ DÉTAILLÉE</h2>\n{html_detail}<br>\n\n"
+            f"<h2>💡 POINTS CLÉS & CHIFFRES</h2>\n{html_points}<br>\n\n"
+            f"<h2>💬 CITATIONS & RÉFÉRENCES</h2>\n{html_citations}"
         )
         
         st.subheader("📋 Presse-papiers intelligent")
-        st.info("📱 Clique sur le bouton rouge. Tout le document sera mis en mémoire avec ses styles (Titres, listes). Tu n'as plus qu'à aller le coller directement dans Teams, Word ou ton application de notes.")
+        st.info("📱 Multi-sections corrigé : Clique sur le bouton ci-dessous. Le texte conservera ses chapitres séparés et ses puces une fois collé dans tes notes.")
         
-        # Encodage JS sécurisé pour éliminer l'affichage des balises brutes à l'écran
-        escaped_html = final_rich_html.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"').replace("\n", " ")
+        # Échappement strict des retours à la ligne pour le script JS (remplacement par \\n)
+        escaped_html = final_rich_html.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"').replace("\n", "\\n")
         
         js_copier_code = f"""
         <div style="text-align: center; margin-bottom: 15px;">
@@ -287,9 +286,9 @@ if 'report_data' in st.session_state:
             const htmlData = "{escaped_html}";
             const blobHtml = new Blob([htmlData], {{ type: 'text/html' }});
             
-            // Extraction du texte brut pour fallback universel
+            // Version texte brut qui préserve impérativement les sauts de ligne si l'app cible refuse le HTML
             const div = document.createElement('div');
-            div.innerHTML = htmlData;
+            div.innerHTML = htmlData.replace(/<br\s*\\/?>/gi, '\\n').replace(/<\/p>/gi, '\\n').replace(/<\/li>/gi, '\\n');
             const plainText = div.textContent || div.innerText || "";
             const blobText = new Blob([plainText], {{ type: 'text/plain' }});
             
@@ -299,16 +298,15 @@ if 'report_data' in st.session_state:
             }});
             
             navigator.clipboard.write([item]).then(() => {{
-                alert('✅ Rapport copié avec succès en texte riche !');
+                alert('✅ Rapport copié ! Les espaces entre chapitres sont préservés.');
             }}).catch(err => {{
-                alert('❌ Erreur de copie automatique. Utilise la sélection manuelle ci-dessous.');
+                alert('❌ Erreur de copie.');
             }});
         }}
         </script>
         """
-        # Injection du composant bouton invisible/interactif
+        
         st.components.v1.html(js_copier_code, height=65)
         
-        # Zone d'aperçu de ce qui a été copié (Interprété, propre, sans balises HTML visibles)
-        st.markdown("**🔍 Aperçu visuel de ton texte formaté après le collage :**")
+        st.markdown("**🔍 Aperçu de la structure finale espacée :**")
         st.markdown(f'<div class="preview-box-clean">{final_rich_html}</div>', unsafe_allow_html=True)
