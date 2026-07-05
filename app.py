@@ -98,7 +98,7 @@ if not check_password():
 def md_to_clean_html(text):
     if not text: return ""
     
-    # Nettoyage des marqueurs de structure générés par l'IA
+    # Nettoyage des marqueurs résiduels de structure
     text = re.sub(r'^\[SECTION\s*\d+\s*:.*?\]\s*\n?', '', text, flags=re.IGNORECASE | re.MULTILINE)
     text = re.sub(r'\[SECTION.*?\]', '', text, flags=re.IGNORECASE)
     text = re.sub(r'#+\s*.*?(Synthèse|Résumé Flash|Analyse détaillée|Points clés|Citations).*?\n', '', text, flags=re.IGNORECASE)
@@ -210,24 +210,44 @@ if trigger_analyse:
         if not transcript_text:
             st.error("Impossible d'obtenir un texte à analyser.")
         else:
+            client = genai.Client(api_key=gemini_key)
+            
+            # Détermination et génération intelligente du titre si saisie manuelle
             details = get_official_youtube_details(video_id, yt_key) if video_id != "texte_manuel" else None
-            title_clean = details['title'] if details else "Analyse_Manuelle"
-            meta_part = f"- **Titre :** {details['title']}\n- **Chaîne :** {details['channel']}\n- **URL :** {video_url}" if details else f"- **Titre :** Déduction auto\n- **URL :** {video_url if video_url else 'Manuel'}"
+            if details:
+                title_clean = details['title']
+                meta_part = f"- **Titre :** {details['title']}\n- **Chaîne :** {details['channel']}\n- **URL :** {video_url}"
+            else:
+                with st.spinner("Génération du titre automatique..."):
+                    try:
+                        title_prompt = f"Génère uniquement un titre court, percutant et sans guillemets (maximum 8 mots) pour résumer ce texte :\n\n{transcript_text[:2000]}"
+                        title_res = client.models.generate_content(model='gemini-2.5-flash', contents=title_prompt)
+                        title_clean = title_res.text.strip().replace('"', '')
+                    except:
+                        title_clean = "Analyse de Texte Saisie"
+                meta_part = f"- **Titre :** {title_clean}\n- **Source :** Saisie manuelle directe"
 
             try:
-                client = genai.Client(api_key=gemini_key)
-                prompt_text = f"Analyse cette transcription et sépare strictement chaque bloc par '===SECTION_SEPARATOR==='.\n[SECTION 1: SYNTHESE]\nRésumé en 2 phrases italiques.\n{meta_part}\n===SECTION_SEPARATOR===\n[SECTION 2: RESUME_FLASH]\n4 à 6 puces percutantes.\n===SECTION_SEPARATOR===\n[SECTION 3: DETAIL]\nRésumé dense en paragraphes.\n===SECTION_SEPARATOR===\n[SECTION 4: POINTS_CLES]\nListe numérotée et chiffres clés.\n===SECTION_SEPARATOR===\n[SECTION 5: CITATIONS]\nCitations fortes et références.\n\nTranscription:\n{transcript_text}"
+                # Prompt avec délimiteur strict nettoyé pour éviter tout problème sur la Synthèse
+                prompt_text = f"Analyse cette transcription et sépare strictement chaque bloc par le délimiteur '===SECTION_SEPARATOR==='.\nNe répète pas le délimiteur à l'intérieur des blocs.\n\n[SECTION 1: SYNTHESE]\nRésumé global en 2 phrases italiques.\n{meta_part}\n===SECTION_SEPARATOR===\n[SECTION 2: RESUME_FLASH]\n4 à 6 puces percutantes.\n===SECTION_SEPARATOR===\n[SECTION 3: DETAIL]\nRésumé dense structuré en paragraphes.\n===SECTION_SEPARATOR===\n[SECTION 4: POINTS_CLES]\nListe des chiffres clés et concepts importants.\n===SECTION_SEPARATOR===\n[SECTION 5: CITATIONS]\nCitations fortes ou points saillants.\n\nTranscription:\n{transcript_text}"
                 
-                with st.spinner("Analyse en cours..."):
+                with st.spinner("Analyse du contenu en cours..."):
                     response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt_text)
                 
-                sections = response.text.split("===SECTION_SEPARATOR===")
+                # Parsing robuste pour garantir le bon découpage même s'il y a des espaces blancs
+                raw_sections = response.text.split("===SECTION_SEPARATOR===")
+                sections = [s.strip() for s in raw_sections if s.strip()]
+                
+                # Protection de secours si l'IA fusionne ou manque une section
+                while len(sections) < 5:
+                    sections.append("")
+                
                 st.session_state['report_data'] = {
-                    "synth": sections[0].strip(), "flash": sections[1].strip(), "detail": sections[2].strip(), "points": sections[3].strip(), "citations": sections[4].strip()
+                    "synth": sections[0], "flash": sections[1], "detail": sections[2], "points": sections[3], "citations": sections[4]
                 }
                 st.rerun()
             except Exception as e:
-                st.error(f"Erreur : {str(e)}")
+                st.error(f"Erreur lors de la génération : {str(e)}")
 
 # --- VISUALISATION ET INTEGRATION PRESSE-PAPIERS ANTI-BLOC ---
 if 'report_data' in st.session_state:
@@ -250,19 +270,19 @@ if 'report_data' in st.session_state:
         html_points = md_to_clean_html(data['points'])
         html_citations = md_to_clean_html(data['citations'])
         
-        # Structure HTML avec retours à la ligne explicites pour forcer l'espacement au collage
+        # Structure HTML propre
         final_rich_html = (
             f"<h2>📊 SYNTHÈSE</h2>\n{html_synth}<br>\n\n"
             f"<h2>⚡ RÉSUMÉ FLASH</h2>\n{html_flash}<br>\n\n"
-            f"<h2>📖 AMALYSÉ DÉTAILLÉE</h2>\n{html_detail}<br>\n\n"
+            f"<h2>📖 ANALYSE DÉTAILLÉE</h2>\n{html_detail}<br>\n\n"
             f"<h2>💡 POINTS CLÉS & CHIFFRES</h2>\n{html_points}<br>\n\n"
             f"<h2>💬 CITATIONS & RÉFÉRENCES</h2>\n{html_citations}"
         )
         
         st.subheader("📋 Presse-papiers intelligent")
-        st.info("📱 Multi-sections corrigé : Clique sur le bouton ci-dessous. Le texte conservera ses chapitres séparés et ses puces une fois collé dans tes notes.")
+        st.info("📱 Clique sur le bouton rouge. Le rapport conservera sa structure aérée avec tous ses chapitres une fois collé dans tes notes.")
         
-        # Échappement strict des retours à la ligne pour le script JS (remplacement par \\n)
+        # Échappement des caractères pour le transport JS
         escaped_html = final_rich_html.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"').replace("\n", "\\n")
         
         js_copier_code = f"""
@@ -286,7 +306,6 @@ if 'report_data' in st.session_state:
             const htmlData = "{escaped_html}";
             const blobHtml = new Blob([htmlData], {{ type: 'text/html' }});
             
-            // Version texte brut qui préserve impérativement les sauts de ligne si l'app cible refuse le HTML
             const div = document.createElement('div');
             div.innerHTML = htmlData.replace(/<br\s*\\/?>/gi, '\\n').replace(/<\/p>/gi, '\\n').replace(/<\/li>/gi, '\\n');
             const plainText = div.textContent || div.innerText || "";
@@ -298,7 +317,7 @@ if 'report_data' in st.session_state:
             }});
             
             navigator.clipboard.write([item]).then(() => {{
-                alert('✅ Rapport copié ! Les espaces entre chapitres sont préservés.');
+                alert('✅ Rapport copié avec succès !');
             }}).catch(err => {{
                 alert('❌ Erreur de copie.');
             }});
@@ -308,5 +327,5 @@ if 'report_data' in st.session_state:
         
         st.components.v1.html(js_copier_code, height=65)
         
-        st.markdown("**🔍 Aperçu de la structure finale espacée :**")
+        st.markdown("**🔍 Aperçu de ton rapport structuré :**")
         st.markdown(f'<div class="preview-box-clean">{final_rich_html}</div>', unsafe_allow_html=True)
