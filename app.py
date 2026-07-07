@@ -8,72 +8,76 @@ from google import genai
 # Configuration de la page
 st.set_page_config(page_title="Analyseur YouTube", page_icon="📊", layout="wide")
 
-# --- INJECTION CSS : OPTIMISATION COMPACTE MAXIMALE ---
+# --- INJECTION CSS : GLASSMORPHISM & OPTIMISATION MOBILE ---
 st.markdown("""
 <style>
-    /* Thème global */
+    /* Thème global et arrière-plan immersif */
     .stApp {
-        background-color: #0f0f13;
-        color: #e2e8f0;
+        background: radial-gradient(circle at top right, #1e1b4b, #09090b);
+        color: #f4f4f5;
     }
     
-    /* En-tête ultra-compact */
+    /* En-tête ultra-condensé et discret */
     .main-title {
         font-family: 'Inter', sans-serif;
-        font-weight: 800;
-        font-size: 1.6rem;
-        background: linear-gradient(45deg, #a78bfa, #c084fc);
+        font-weight: 700;
+        font-size: 1.2rem;
+        background: linear-gradient(90deg, #c084fc, #a78bfa);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        text-align: center;
-        margin-top: -2.5rem;
-        margin-bottom: 0px;
-        padding-bottom: 0px;
-    }
-    .sub-title {
-        text-align: center;
-        color: #94a3b8;
-        font-size: 0.85rem;
-        margin-top: 2px;
-        margin-bottom: 0.5rem;
+        margin-top: -3.5rem;
+        margin-bottom: 8px;
+        text-align: left;
     }
 
-    /* Ajustement des marges pour condenser la zone de saisie */
-    .stTextInput, .stButton, .stExpander {
-        margin-bottom: 4px !important;
-    }
-
-    /* Forcer l'alignement horizontal de l'input et du bouton */
-    [data-testid="stHorizontalBlock"] {
-        align-items: flex-end !important;
-        gap: 8px !important;
-    }
-
-    /* Style personnalisé pour les onglets horizontaux natifs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 6px;
-        margin-top: 15px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background-color: rgba(23, 23, 33, 0.6);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: 8px;
-        padding: 6px 12px;
-        color: #94a3b8;
-        font-size: 0.9rem;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #ff4b4b !important;
-        color: white !important;
-        font-weight: bold;
+    /* Suppression des marges Streamlit pour compacter l'affichage */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
     }
     
-    /* Zone d'info texte claire sans cadre collapse */
-    .info-texte-libre {
-        color: #94a3b8;
-        font-size: 0.9rem;
+    div[data-testid="stForm"], .stTextInput, .stTextArea, .stButton {
+        margin-bottom: 6px !important;
+    }
+
+    /* Style des conteneurs en Glassmorphism pur */
+    .glass-card {
+        background: rgba(23, 23, 37, 0.4);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 12px;
+        margin-bottom: 10px;
+    }
+
+    /* Alignement horizontal compact */
+    [data-testid="stHorizontalBlock"] {
+        align-items: flex-end !important;
+        gap: 6px !important;
+    }
+
+    /* Onglets de consultation style Glassmorphism */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 4px;
         margin-top: 10px;
-        margin-bottom: 4px;
+        background: rgba(255, 255, 255, 0.03);
+        padding: 4px;
+        border-radius: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: transparent;
+        border: none;
+        border-radius: 6px;
+        padding: 6px 10px;
+        color: #a1a1aa;
+        font-size: 0.85rem;
+    }
+    .stTabs [aria-selected="true"] {
+        background: rgba(255, 75, 75, 0.2) !important;
+        border: 1px solid rgba(255, 75, 75, 0.4) !important;
+        color: #ffffff !important;
+        backdrop-filter: blur(4px);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -123,16 +127,17 @@ def md_to_clean_html(text):
                 html_output.append("</ul>\n")
                 in_list = False
             title_text = line_str.lstrip('#').strip()
-            html_output.append(f"<h3 style='color: #c084fc; margin-top: 16px; margin-bottom: 6px; font-size:1.15rem;'>{title_text}</h3>\n")
+            html_output.append(f"<h3 style='color: #c084fc; margin-top: 12px; margin-bottom: 4px; font-size:1.05rem;'>{title_text}</h3>\n")
             continue
             
         if line_str.startswith('- ') or line_str.startswith('* ') or line_str.startswith('• '):
             if not in_list:
-                html_output.append("<ul style='margin-top: 4px; margin-bottom: 4px; padding-left: 20px;'>\n")
+                html_output.append("<ul style='margin-top: 2px; margin-bottom: 2px; padding-left: 16px;'>\n")
+                in_true = True
                 in_list = True
             bullet_content = re.sub(r'^[-*•]\s*', '', line_str)
             bullet_content = re.sub(r'\*\*(.*?)\*\*|\_\_(.*?)\_\_', r'<b>\1\2</b>', bullet_content)
-            html_output.append(f"<li style='margin-bottom: 4px;'>{bullet_content}</li>\n")
+            html_output.append(f"<li style='margin-bottom: 2px; font-size:0.9rem;'>{bullet_content}</li>\n")
             continue
             
         if in_list:
@@ -141,7 +146,7 @@ def md_to_clean_html(text):
             
         line_str = re.sub(r'\*\*(.*?)\*\*|\_\_(.*?)\_\_', r'<b>\1\2</b>', line_str)
         line_str = re.sub(r'\*(.*?)\*|\_(.*?)\_', r'<i>\1\2</i>', line_str)
-        html_output.append(f"<p style='margin-top: 4px; margin-bottom: 4px; line-height: 1.4;'>{line_str}</p>\n")
+        html_output.append(f"<p style='margin-top: 2px; margin-bottom: 2px; line-height: 1.35; font-size:0.9rem;'>{line_str}</p>\n")
         
     if in_list:
         html_output.append("</ul>\n")
@@ -186,18 +191,20 @@ def get_transcript_from_1min(url, api_key):
     except:
         return None
 
-# --- INTERFACE GRAPHIQUE COMPACTE ---
-st.markdown('<h1 class="main-title">Analyseur YouTube</h1>', unsafe_allow_html=True)
-st.markdown('<p class="sub-title">Résumé, points clés et chiffres extraits en quelques secondes</p>', unsafe_allow_html=True)
+# --- INTERFACE DESIGN COMPACTE ---
+st.markdown('<h1 class="main-title">📊 Analyseur YouTube</h1>', unsafe_allow_html=True)
 
-col_url, col_btn = st.columns([3, 1])
+# Zone d'inputs groupée dans une carte Glassmorphism unique et ouverte
+st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+col_url, col_btn = st.columns([2.8, 1.2])
 with col_url:
-    video_url = st.text_input("URL DE LA VIDÉO", placeholder="https://www.youtube.com/watch?v=...", label_visibility="collapsed")
+    video_url = st.text_input("URL", placeholder="Lien YouTube...", label_visibility="collapsed")
 with col_btn:
     trigger_analyse = st.button("Analyser", type="primary", use_container_width=True)
 
-with st.expander("📝 Saisie manuelle de texte (Option)", expanded=False):
-    manual_transcript = st.text_area("Colle ta transcription brute ici", height=120, label_visibility="collapsed")
+# Saisie manuelle directement ouverte (sans collapse / expander)
+manual_transcript = st.text_area("Saisie manuelle (Texte ou Transcription brute)", placeholder="Ou colle un texte / transcription directement ici...", height=90)
+st.markdown('</div>', unsafe_allow_html=True)
 
 if trigger_analyse:
     if not video_url and not manual_transcript.strip():
@@ -220,7 +227,7 @@ if trigger_analyse:
                 title_clean = details['title']
                 meta_part = f"- **Titre :** {details['title']}\n- **Chaîne :** {details['channel']}\n- **URL :** {video_url}"
             else:
-                with st.spinner("Génération du titre automatique..."):
+                with st.spinner("Génération du titre..."):
                     try:
                         title_prompt = f"Génère uniquement un titre court, percutant et sans guillemets (maximum 8 mots) pour résumer ce texte :\n\n{transcript_text[:2000]}"
                         title_res = client.models.generate_content(model='gemini-2.5-flash', contents=title_prompt)
@@ -232,7 +239,7 @@ if trigger_analyse:
             try:
                 prompt_text = f"Analyse cette transcription et sépare strictement chaque bloc par le délimiteur '===SECTION_SEPARATOR==='.\nNe répète pas le délimiteur à l'intérieur des blocs.\n\n[SECTION 1: SYNTHESE]\nRésumé global en 2 phrases italiques.\n{meta_part}\n===SECTION_SEPARATOR===\n[SECTION 2: RESUME_FLASH]\n4 à 6 puces percutantes.\n===SECTION_SEPARATOR===\n[SECTION 3: DETAIL]\nRésumé dense structuré en paragraphes.\n===SECTION_SEPARATOR===\n[SECTION 4: POINTS_CLES]\nListe des chiffres clés et concepts importants.\n===SECTION_SEPARATOR===\n[SECTION 5: CITATIONS]\nCitations fortes ou points saillants.\n\nTranscription:\n{transcript_text}"
                 
-                with st.spinner("Analyse du contenu en cours..."):
+                with st.spinner("Analyse du contenu..."):
                     response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt_text)
                 
                 raw_sections = response.text.split("===SECTION_SEPARATOR===")
@@ -248,11 +255,10 @@ if trigger_analyse:
             except Exception as e:
                 st.error(f"Erreur lors de la génération : {str(e)}")
 
-# --- BLOC DE COPIE IMMÉDIAT ET CONSULTATION ---
+# --- BOUTON DE COPIE IMMÉDIAT & CONSULTATION ---
 if 'report_data' in st.session_state:
     data = st.session_state['report_data']
     
-    # Préparation des données HTML en tâche de fond
     html_synth = md_to_clean_html(data['synth'])
     html_flash = md_to_clean_html(data['flash'])
     html_detail = md_to_clean_html(data['detail'])
@@ -267,25 +273,24 @@ if 'report_data' in st.session_state:
         f"<h2>💬 CITATIONS & RÉFÉRENCES</h2>\n{html_citations}"
     )
     
-    # Évolution 2 & 3 : Affichage du texte informatif fixe et du bouton rouge juste sous l'analyse
-    st.markdown('<p class="info-texte-libre">📱 <b>Prêt à être copié :</b> Clique ci-dessous pour mettre l\'intégralité du rapport stylé en mémoire, puis va directement le coller dans Teams ou ton application de notes.</p>', unsafe_allow_html=True)
-    
     escaped_html = final_rich_html.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"').replace("\n", "\\n")
     
+    # Injection du script de copie en mode Glassmorphism épuré
     js_copier_code = f"""
-    <div style="text-align: center; margin-top: 2px; margin-bottom: 5px;">
+    <div style="text-align: center; margin-top: 4px; margin-bottom: 4px;">
         <button onclick="copyToClipboard()" style="
-            background-color: #ff4b4b;
+            background: linear-gradient(135deg, rgba(255, 75, 75, 0.9), rgba(220, 38, 38, 0.9));
             color: white;
-            border: none;
-            padding: 12px 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 10px 20px;
             font-weight: bold;
-            font-size: 1rem;
+            font-size: 0.95rem;
             border-radius: 8px;
             cursor: pointer;
             width: 100%;
-            box-shadow: 0px 4px 10px rgba(255, 75, 75, 0.25);
-        ">📋 COPIER TOUT LE RAPPORT EN UN CLIC</button>
+            box-shadow: 0px 4px 12px rgba(255, 75, 75, 0.2);
+            backdrop-filter: blur(4px);
+        ">📋 COPIER LE RAPPORT EN UN CLIC</button>
     </div>
 
     <script>
@@ -304,18 +309,18 @@ if 'report_data' in st.session_state:
         }});
         
         navigator.clipboard.write([item]).then(() => {{
-            alert('✅ Rapport copié avec succès !');
+            alert('✅ Rapport copié !');
         }}).catch(err => {{
-            alert('❌ Erreur lors de la copie automatique.');
+            alert('❌ Erreur de copie.');
         }});
     }}
     </script>
     """
-    st.components.v1.html(js_copier_code, height=55)
+    st.components.v1.html(js_copier_code, height=48)
     
-    # Onglets uniquement pour la consultation fluide à l'écran
+    # Zone de rendu visuel sous forme d'onglets discrets
     tab_synth, tab_flash, tab_detail, tab_points, tab_cit = st.tabs([
-        "📊 Synthèse", "⚡ Résumé Flash", "📖 Analyse détaillée", "💡 Points clés", "💬 Citations"
+        "📊 Synthèse", "⚡ Flash", "📖 Détail", "💡 Points clés", "💬 Citations"
     ])
     
     with tab_synth: st.markdown(data["synth"])
