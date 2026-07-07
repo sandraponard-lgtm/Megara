@@ -17,27 +17,27 @@ st.markdown("""
         color: #f4f4f5;
     }
     
-    /* En-tête ultra-condensé et discret */
+    /* En-tête ultra-condensé avec marge propre en haut */
     .main-title {
         font-family: 'Inter', sans-serif;
         font-weight: 700;
-        font-size: 1.2rem;
+        font-size: 1.3rem;
         background: linear-gradient(90deg, #c084fc, #a78bfa);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        margin-top: -3.5rem;
-        margin-bottom: 8px;
+        margin-top: 10px;
+        margin-bottom: 12px;
         text-align: left;
     }
 
     /* Suppression des marges Streamlit pour compacter l'affichage */
     .block-container {
-        padding-top: 1rem !important;
+        padding-top: 0.5rem !important;
         padding-bottom: 1rem !important;
     }
     
-    div[data-testid="stForm"], .stTextInput, .stTextArea, .stButton {
-        margin-bottom: 6px !important;
+    .stTextInput, .stTextArea, .stButton {
+        margin-bottom: 8px !important;
     }
 
     /* Style des conteneurs en Glassmorphism pur */
@@ -47,20 +47,14 @@ st.markdown("""
         -webkit-backdrop-filter: blur(12px);
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 12px;
-        padding: 12px;
+        padding: 14px;
         margin-bottom: 10px;
-    }
-
-    /* Alignement horizontal compact */
-    [data-testid="stHorizontalBlock"] {
-        align-items: flex-end !important;
-        gap: 6px !important;
     }
 
     /* Onglets de consultation style Glassmorphism */
     .stTabs [data-baseweb="tab-list"] {
         gap: 4px;
-        margin-top: 10px;
+        margin-top: 12px;
         background: rgba(255, 255, 255, 0.03);
         padding: 4px;
         border-radius: 8px;
@@ -133,10 +127,9 @@ def md_to_clean_html(text):
         if line_str.startswith('- ') or line_str.startswith('* ') or line_str.startswith('• '):
             if not in_list:
                 html_output.append("<ul style='margin-top: 2px; margin-bottom: 2px; padding-left: 16px;'>\n")
-                in_true = True
                 in_list = True
             bullet_content = re.sub(r'^[-*•]\s*', '', line_str)
-            bullet_content = re.sub(r'\*\*(.*?)\*\*|\_\_(.*?)\_\_', r'<b>\1\2</b>', bullet_content)
+            bullet_content = re.sub(r'\*\frac{(.*?)}{(.*?)}\*\*|\*\*(.*?)\*\*|\_\_(.*?)\_\_', r'<b>\1\2\3\4</b>', bullet_content) # Protection fallback gras
             html_output.append(f"<li style='margin-bottom: 2px; font-size:0.9rem;'>{bullet_content}</li>\n")
             continue
             
@@ -192,18 +185,18 @@ def get_transcript_from_1min(url, api_key):
         return None
 
 # --- INTERFACE DESIGN COMPACTE ---
-st.markdown('<h1 class="main-title">📊 Analyseur YouTube</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">Analyseur YouTube</h1>', unsafe_allow_html=True)
 
-# Zone d'inputs groupée dans une carte Glassmorphism unique et ouverte
+# Zone d'inputs ouverte sans colonnes pour éviter le champ vide parasite
 st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-col_url, col_btn = st.columns([2.8, 1.2])
-with col_url:
-    video_url = st.text_input("URL", placeholder="Lien YouTube...", label_visibility="collapsed")
-with col_btn:
-    trigger_analyse = st.button("Analyser", type="primary", use_container_width=True)
 
-# Saisie manuelle directement ouverte (sans collapse / expander)
-manual_transcript = st.text_area("Saisie manuelle (Texte ou Transcription brute)", placeholder="Ou colle un texte / transcription directement ici...", height=90)
+video_url = st.text_input("URL de la vidéo", placeholder="Colle un lien YouTube ici...", label_visibility="collapsed")
+
+# Évolution : Le bloc de texte passe au-dessus du bouton
+manual_transcript = st.text_area("Saisie manuelle (Texte ou Transcription brute)", placeholder="Ou colle un texte / une transcription directement ici...", height=100, label_visibility="collapsed")
+
+trigger_analyse = st.button("Analyser", type="primary", use_container_width=True)
+
 st.markdown('</div>', unsafe_allow_html=True)
 
 if trigger_analyse:
@@ -275,56 +268,7 @@ if 'report_data' in st.session_state:
     
     escaped_html = final_rich_html.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"').replace("\n", "\\n")
     
-    # Injection du script de copie en mode Glassmorphism épuré
     js_copier_code = f"""
-    <div style="text-align: center; margin-top: 4px; margin-bottom: 4px;">
+    <div style="text-align: center; margin-top: 2px; margin-bottom: 6px;">
         <button onclick="copyToClipboard()" style="
-            background: linear-gradient(135deg, rgba(255, 75, 75, 0.9), rgba(220, 38, 38, 0.9));
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 10px 20px;
-            font-weight: bold;
-            font-size: 0.95rem;
-            border-radius: 8px;
-            cursor: pointer;
-            width: 100%;
-            box-shadow: 0px 4px 12px rgba(255, 75, 75, 0.2);
-            backdrop-filter: blur(4px);
-        ">📋 COPIER LE RAPPORT EN UN CLIC</button>
-    </div>
-
-    <script>
-    function copyToClipboard() {{
-        const htmlData = "{escaped_html}";
-        const blobHtml = new Blob([htmlData], {{ type: 'text/html' }});
-        
-        const div = document.createElement('div');
-        div.innerHTML = htmlData.replace(/<br\s*\\/?>/gi, '\\n').replace(/<\/p>/gi, '\\n').replace(/<\/li>/gi, '\\n');
-        const plainText = div.textContent || div.innerText || "";
-        const blobText = new Blob([plainText], {{ type: 'text/plain' }});
-        
-        const item = new ClipboardItem({{
-            'text/html': blobHtml,
-            'text/plain': blobText
-        }});
-        
-        navigator.clipboard.write([item]).then(() => {{
-            alert('✅ Rapport copié !');
-        }}).catch(err => {{
-            alert('❌ Erreur de copie.');
-        }});
-    }}
-    </script>
-    """
-    st.components.v1.html(js_copier_code, height=48)
-    
-    # Zone de rendu visuel sous forme d'onglets discrets
-    tab_synth, tab_flash, tab_detail, tab_points, tab_cit = st.tabs([
-        "📊 Synthèse", "⚡ Flash", "📖 Détail", "💡 Points clés", "💬 Citations"
-    ])
-    
-    with tab_synth: st.markdown(data["synth"])
-    with tab_flash: st.markdown(data["flash"])
-    with tab_detail: st.markdown(data["detail"])
-    with tab_points: st.markdown(data["points"])
-    with tab_cit: st.markdown(data["citations"])
+            background: linear-gradient(135deg, rgba(255, 75
