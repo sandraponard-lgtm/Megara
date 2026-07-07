@@ -8,7 +8,7 @@ from google import genai
 # Configuration de la page
 st.set_page_config(page_title="Analyseur YouTube", page_icon="📊", layout="wide")
 
-# --- INJECTION CSS : GLASSMORPHISM & OPTIMISATION MOBILE ---
+# --- INJECTION CSS : GLASSMORPHISM & CORRECTIONS VISUELLES ---
 st.markdown("""
 <style>
     /* Thème global et arrière-plan immersif */
@@ -17,41 +17,42 @@ st.markdown("""
         color: #f4f4f5;
     }
     
-    /* En-tête ultra-condensé avec marge propre en haut */
-    .main-title {
-        font-family: 'Inter', sans-serif;
-        font-weight: 700;
-        font-size: 1.3rem;
-        background: linear-gradient(90deg, #c084fc, #a78bfa);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-top: 10px;
-        margin-bottom: 12px;
-        text-align: left;
-    }
-
-    /* Suppression des marges Streamlit pour compacter l'affichage */
+    /* Nettoyage drastique des marges et paddings natifs en haut de page */
     .block-container {
-        padding-top: 0.5rem !important;
+        padding-top: 10px !important;
         padding-bottom: 1rem !important;
     }
     
+    /* Ciblage direct et forcé du titre pour le réduire au max */
+    h1, .main-title {
+        font-family: 'Inter', sans-serif !important;
+        font-weight: 700 !important;
+        font-size: 1.3rem !important;
+        background: linear-gradient(90deg, #c084fc, #a78bfa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-top: 0px !important;
+        padding-top: 0px !important;
+        margin-bottom: 12px !important;
+        text-align: left !important;
+    }
+
+    /* Stylisation du container natif Streamlit en Glassmorphism (Zéro bloc vide) */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: rgba(23, 23, 37, 0.4) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 12px !important;
+        padding: 4px !important;
+    }
+    
+    /* Espacements des inputs */
     .stTextInput, .stTextArea, .stButton {
-        margin-bottom: 8px !important;
+        margin-bottom: 0px !important;
     }
 
-    /* Style des conteneurs en Glassmorphism pur */
-    .glass-card {
-        background: rgba(23, 23, 37, 0.4);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 14px;
-        margin-bottom: 10px;
-    }
-
-    /* Onglets de consultation style Glassmorphism */
+    /* Style des Onglets */
     .stTabs [data-baseweb="tab-list"] {
         gap: 4px;
         margin-top: 12px;
@@ -129,7 +130,7 @@ def md_to_clean_html(text):
                 html_output.append("<ul style='margin-top: 2px; margin-bottom: 2px; padding-left: 16px;'>\n")
                 in_list = True
             bullet_content = re.sub(r'^[-*•]\s*', '', line_str)
-            bullet_content = re.sub(r'\*\frac{(.*?)}{(.*?)}\*\*|\*\*(.*?)\*\*|\_\_(.*?)\_\_', r'<b>\1\2\3\4</b>', bullet_content) # Protection fallback gras
+            bullet_content = re.sub(r'\*\*(.*?)\*\*|\_\_(.*?)\_\_', r'<b>\1\2</b>', bullet_content)
             html_output.append(f"<li style='margin-bottom: 2px; font-size:0.9rem;'>{bullet_content}</li>\n")
             continue
             
@@ -184,20 +185,14 @@ def get_transcript_from_1min(url, api_key):
     except:
         return None
 
-# --- INTERFACE DESIGN COMPACTE ---
-st.markdown('<h1 class="main-title">Analyseur YouTube</h1>', unsafe_allow_html=True)
+# --- INTERFACE EN FINITION PARFAITE ---
+st.title("Analyseur YouTube")
 
-# Zone d'inputs ouverte sans colonnes pour éviter le champ vide parasite
-st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-
-video_url = st.text_input("URL de la vidéo", placeholder="Colle un lien YouTube ici...", label_visibility="collapsed")
-
-# Évolution : Le bloc de texte passe au-dessus du bouton
-manual_transcript = st.text_area("Saisie manuelle (Texte ou Transcription brute)", placeholder="Ou colle un texte / une transcription directement ici...", height=100, label_visibility="collapsed")
-
-trigger_analyse = st.button("Analyser", type="primary", use_container_width=True)
-
-st.markdown('</div>', unsafe_allow_html=True)
+# Utilisation du container natif avec bordure pour appliquer le Glassmorphism de façon propre
+with st.container(border=True):
+    video_url = st.text_input("URL de la vidéo", placeholder="Colle un lien YouTube ici...", label_visibility="collapsed")
+    manual_transcript = st.text_area("Saisie manuelle", placeholder="Ou colle un texte / une transcription directement ici...", height=100, label_visibility="collapsed")
+    trigger_analyse = st.button("Analyser", type="primary", use_container_width=True)
 
 if trigger_analyse:
     if not video_url and not manual_transcript.strip():
@@ -269,7 +264,7 @@ if 'report_data' in st.session_state:
     escaped_html = final_rich_html.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"').replace("\n", "\\n")
     
     js_copier_code = f"""
-    <div style="text-align: center; margin-top: 2px; margin-bottom: 6px;">
+    <div style="text-align: center; margin-top: 4px; margin-bottom: 6px;">
         <button onclick="copyToClipboard()" style="
             background: linear-gradient(135deg, rgba(255, 75, 75, 0.95), rgba(220, 38, 38, 0.95));
             color: white;
@@ -310,7 +305,6 @@ if 'report_data' in st.session_state:
     """
     st.components.v1.html(js_copier_code, height=48)
     
-    # Rendu visuel sous forme d'onglets discrets
     tab_synth, tab_flash, tab_detail, tab_points, tab_cit = st.tabs([
         "📊 Synthèse", "⚡ Flash", "📖 Détail", "💡 Points", "💬 Citations"
     ])
