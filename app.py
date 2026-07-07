@@ -271,4 +271,52 @@ if 'report_data' in st.session_state:
     js_copier_code = f"""
     <div style="text-align: center; margin-top: 2px; margin-bottom: 6px;">
         <button onclick="copyToClipboard()" style="
-            background: linear-gradient(135deg, rgba(255, 75
+            background: linear-gradient(135deg, rgba(255, 75, 75, 0.95), rgba(220, 38, 38, 0.95));
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 10px 20px;
+            font-weight: bold;
+            font-size: 0.95rem;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+            box-shadow: 0px 4px 12px rgba(255, 75, 75, 0.25);
+            backdrop-filter: blur(4px);
+        ">📋 COPIER LE RAPPORT EN UN CLIC</button>
+    </div>
+
+    <script>
+    function copyToClipboard() {{
+        const htmlData = "{escaped_html}";
+        const blobHtml = new Blob([htmlData], {{ type: 'text/html' }});
+        
+        const div = document.createElement('div');
+        div.innerHTML = htmlData.replace(/<br\s*\\/?>/gi, '\\n').replace(/<\/p>/gi, '\\n').replace(/<\/li>/gi, '\\n');
+        const plainText = div.textContent || div.innerText || "";
+        const blobText = new Blob([plainText], {{ type: 'text/plain' }});
+        
+        const item = new ClipboardItem({{
+            'text/html': blobHtml,
+            'text/plain': blobText
+        }});
+        
+        navigator.clipboard.write([item]).then(() => {{
+            alert('✅ Rapport copié !');
+        }}).catch(err => {{
+            alert('❌ Erreur de copie.');
+        }});
+    }}
+    </script>
+    """
+    st.components.v1.html(js_copier_code, height=48)
+    
+    # Rendu visuel sous forme d'onglets discrets
+    tab_synth, tab_flash, tab_detail, tab_points, tab_cit = st.tabs([
+        "📊 Synthèse", "⚡ Flash", "📖 Détail", "💡 Points", "💬 Citations"
+    ])
+    
+    with tab_synth: st.markdown(data["synth"])
+    with tab_flash: st.markdown(data["flash"])
+    with tab_detail: st.markdown(data["detail"])
+    with tab_points: st.markdown(data["points"])
+    with tab_cit: st.markdown(data["citations"])
