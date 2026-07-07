@@ -8,7 +8,7 @@ from google import genai
 # Configuration de la page
 st.set_page_config(page_title="Analyseur YouTube", page_icon="📊", layout="wide")
 
-# --- INJECTION CSS : GLASSMORPHISM & CORRECTIONS VISUELLES ---
+# --- INJECTION CSS : GLASSMORPHISM & FIXES VISUELS ---
 st.markdown("""
 <style>
     /* Thème global et arrière-plan immersif */
@@ -17,23 +17,23 @@ st.markdown("""
         color: #f4f4f5;
     }
     
-    /* Nettoyage drastique des marges et paddings natifs en haut de page */
+    /* Nettoyage des marges natives en haut de page */
     .block-container {
-        padding-top: 10px !important;
+        padding-top: 15px !important;
         padding-bottom: 1rem !important;
     }
     
-    /* Ciblage direct et forcé du titre pour le réduire au max */
-    h1, .main-title {
+    /* Style personnalisé et stable pour notre titre personnalisé */
+    .custom-title {
         font-family: 'Inter', sans-serif !important;
         font-weight: 700 !important;
-        font-size: 1.3rem !important;
+        font-size: 1.4rem !important;
         background: linear-gradient(90deg, #c084fc, #a78bfa);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         margin-top: 0px !important;
-        padding-top: 0px !important;
-        margin-bottom: 12px !important;
+        margin-bottom: 14px !important;
+        padding: 0px !important;
         text-align: left !important;
     }
 
@@ -47,7 +47,7 @@ st.markdown("""
         padding: 4px !important;
     }
     
-    /* Espacements des inputs */
+    /* Ajustements des espacements */
     .stTextInput, .stTextArea, .stButton {
         margin-bottom: 0px !important;
     }
@@ -130,7 +130,7 @@ def md_to_clean_html(text):
                 html_output.append("<ul style='margin-top: 2px; margin-bottom: 2px; padding-left: 16px;'>\n")
                 in_list = True
             bullet_content = re.sub(r'^[-*•]\s*', '', line_str)
-            bullet_content = re.sub(r'\*\*(.*?)\*\*|\_\_(.*?)\_\_', r'<b>\1\2</b>', bullet_content)
+            bullet_content = re.sub(r'\*\frac{(.*?)}{(.*?)}\*\*|\*\*(.*?)\*\*|\_\_(.*?)\_\_', r'<b>\1\2\3\4</b>', bullet_content)
             html_output.append(f"<li style='margin-bottom: 2px; font-size:0.9rem;'>{bullet_content}</li>\n")
             continue
             
@@ -185,10 +185,11 @@ def get_transcript_from_1min(url, api_key):
     except:
         return None
 
-# --- INTERFACE EN FINITION PARFAITE ---
-st.title("Analyseur YouTube")
+# --- RENDER DE L'INTERFACE COMPACTE ---
+# Utilisation d'un markdown HTML explicite pour éviter les conflits et forcer l'affichage du titre
+st.markdown('<h1 class="custom-title">📊 Analyseur YouTube</h1>', unsafe_allow_html=True)
 
-# Utilisation du container natif avec bordure pour appliquer le Glassmorphism de façon propre
+# Container principal en Glassmorphism propre
 with st.container(border=True):
     video_url = st.text_input("URL de la vidéo", placeholder="Colle un lien YouTube ici...", label_visibility="collapsed")
     manual_transcript = st.text_area("Saisie manuelle", placeholder="Ou colle un texte / une transcription directement ici...", height=100, label_visibility="collapsed")
@@ -264,7 +265,7 @@ if 'report_data' in st.session_state:
     escaped_html = final_rich_html.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"').replace("\n", "\\n")
     
     js_copier_code = f"""
-    <div style="text-align: center; margin-top: 4px; margin-bottom: 6px;">
+    <div style="text-align: center; margin-top: 2px; margin-bottom: 6px;">
         <button onclick="copyToClipboard()" style="
             background: linear-gradient(135deg, rgba(255, 75, 75, 0.95), rgba(220, 38, 38, 0.95));
             color: white;
